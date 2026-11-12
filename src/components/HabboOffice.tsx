@@ -21,7 +21,8 @@ import {
   MessageSquare,
   Bot,
   Database,
-  ArrowDownUp
+  ArrowDownUp,
+  Radar
 } from 'lucide-react';
 
 interface Props {
@@ -232,7 +233,7 @@ export const HabboOffice: React.FC<Props> = ({
       </header>
 
       {/* Main Isometric Room Container */}
-      <main className="flex-1 flex flex-col items-center justify-start p-2 sm:p-3 bg-[#0d121f]">
+      <main className="flex flex-col items-center justify-start p-2 sm:p-3 bg-[#0d121f]">
         {/* Room Title Header */}
         <div className="w-full max-w-4xl flex items-center justify-between pb-1 mb-1.5 border-b border-slate-800 text-[10.5px] sm:text-xs text-slate-400">
           <div className="flex items-center gap-1.5 font-bold tracking-wider">
@@ -286,10 +287,10 @@ export const HabboOffice: React.FC<Props> = ({
 
           {/* Quick buttons based on current room */}
           {currentRoom === 'office' ? (
-            <div className="grid grid-cols-3 xs:grid-cols-6 gap-1 text-[11px] font-bold">
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-[10.5px] sm:text-[11px] font-bold">
               <button
                 onClick={() => handleQuickWalk('rack')}
-                className={`flex items-center justify-center gap-1 py-1.5 px-1 rounded-lg border transition ${
+                className={`flex items-center justify-center gap-1 min-h-[38px] py-1.5 px-1.5 rounded-lg border transition ${
                   activeSpot?.id === 'rack'
                     ? 'bg-amber-500/30 text-amber-300 border-amber-400 ring-1 ring-amber-400'
                     : level1Done 
@@ -304,7 +305,7 @@ export const HabboOffice: React.FC<Props> = ({
 
               <button
                 onClick={() => handleQuickWalk('terminal')}
-                className={`flex items-center justify-center gap-1 py-1.5 px-1 rounded-lg border transition ${
+                className={`flex items-center justify-center gap-1 min-h-[38px] py-1.5 px-1.5 rounded-lg border transition ${
                   activeSpot?.id === 'terminal'
                     ? 'bg-amber-500/30 text-amber-300 border-amber-400 ring-1 ring-amber-400'
                     : level2Done 
@@ -319,7 +320,7 @@ export const HabboOffice: React.FC<Props> = ({
 
               <button
                 onClick={() => handleQuickWalk('umbrella')}
-                className={`flex items-center justify-center gap-1 py-1.5 px-1 rounded-lg border transition ${
+                className={`flex items-center justify-center gap-1 min-h-[38px] py-1.5 px-1.5 rounded-lg border transition ${
                   activeSpot?.id === 'umbrella'
                     ? 'bg-amber-500/30 text-amber-300 border-amber-400 ring-1 ring-amber-400'
                     : level3Done 
@@ -334,7 +335,7 @@ export const HabboOffice: React.FC<Props> = ({
 
               <button
                 onClick={() => handleQuickWalk('coffee')}
-                className={`flex items-center justify-center gap-1 py-1.5 px-1 rounded-lg border transition ${
+                className={`flex items-center justify-center gap-1 min-h-[38px] py-1.5 px-1.5 rounded-lg border transition ${
                   activeSpot?.id === 'coffee'
                     ? 'bg-amber-500/30 text-amber-300 border-amber-400 ring-1 ring-amber-400'
                     : 'border-amber-500/30 bg-slate-800/80 text-amber-200 hover:bg-amber-950/40'
@@ -346,7 +347,7 @@ export const HabboOffice: React.FC<Props> = ({
 
               <button
                 onClick={() => handleQuickWalk('marco')}
-                className={`flex items-center justify-center gap-1 py-1.5 px-1 rounded-lg border transition ${
+                className={`flex items-center justify-center gap-1 min-h-[38px] py-1.5 px-1.5 rounded-lg border transition ${
                   activeSpot?.id === 'marco'
                     ? 'bg-cisco-blue/30 text-cyan-300 border-cisco-blue ring-1 ring-cisco-blue'
                     : 'border-cisco-blue/40 bg-slate-800/80 text-cisco-blue hover:bg-sky-950/40'
@@ -358,19 +359,19 @@ export const HabboOffice: React.FC<Props> = ({
 
               <button
                 onClick={() => handleQuickWalk('elevator_down')}
-                className={`flex items-center justify-center gap-1 py-1.5 px-1 rounded-lg border transition ${
+                className={`flex items-center justify-center gap-1 min-h-[38px] py-1.5 px-1.5 rounded-lg border transition ${
                   activeSpot?.id === 'elevator_down'
                     ? 'bg-cyan-500/30 text-cyan-300 border-cyan-400 ring-1 ring-cyan-400'
                     : 'border-cyan-500/40 bg-slate-800/80 text-cyan-300 hover:bg-sky-950/40'
                 }`}
               >
                 <ArrowDownUp className="w-3 h-3 shrink-0 text-cyan-400" />
-                <span className="truncate">Ascensore (-1)</span>
+                <span className="truncate">Piano -1</span>
               </button>
             </div>
           ) : (
             /* Datacenter Vault buttons */
-            <div className="grid grid-cols-2 xs:grid-cols-5 gap-1 text-[11px] font-bold">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 text-[10.5px] sm:text-[11px] font-bold">
               <button
                 onClick={() => handleQuickWalk('wireshark')}
                 className={`flex items-center justify-center gap-1 py-1.5 px-1 rounded-lg border transition ${
@@ -381,7 +382,7 @@ export const HabboOffice: React.FC<Props> = ({
                       : 'bg-slate-800/80 text-cyan-300 border-cyan-500/40 hover:bg-sky-950/40'
                 }`}
               >
-                <span className="text-xs">🦈</span>
+                <Radar className="w-3 h-3 text-cyan-400 shrink-0" />
                 <span className="truncate">Wireshark DPI</span>
                 {level4Done && <span className="text-[9px] text-emerald-400">✓</span>}
               </button>
@@ -424,7 +425,7 @@ export const HabboOffice: React.FC<Props> = ({
 
               <button
                 onClick={() => handleQuickWalk('elevator_up')}
-                className={`flex items-center justify-center gap-1 py-1.5 px-1 rounded-lg border transition col-span-2 xs:col-span-1 ${
+                className={`flex items-center justify-center gap-1 min-h-[38px] py-1.5 px-1 rounded-lg border transition col-span-2 sm:col-span-1 ${
                   activeSpot?.id === 'elevator_up'
                     ? 'bg-amber-500/30 text-amber-300 border-amber-400 ring-1 ring-amber-400'
                     : 'border-amber-500/40 bg-slate-800/80 text-amber-300 hover:bg-amber-950/40'
@@ -447,7 +448,7 @@ export const HabboOffice: React.FC<Props> = ({
                 {activeSpot.id === 'terminal' && <Terminal className="w-5 h-5 text-amber-400" />}
                 {activeSpot.id === 'umbrella' && <Shield className="w-5 h-5 text-amber-400" />}
                 {activeSpot.id === 'coffee' && <Coffee className="w-5 h-5 text-amber-400" />}
-                {activeSpot.id === 'wireshark' && <span className="text-xl">🦈</span>}
+                {activeSpot.id === 'wireshark' && <Radar className="w-5 h-5 text-cyan-400" />}
                 {activeSpot.id === 'firepower' && <Shield className="w-5 h-5 text-red-400" />}
                 {activeSpot.id === 'san_storage' && <Database className="w-5 h-5 text-cyan-400" />}
                 {activeSpot.id === 'secbot' && <Bot className="w-5 h-5 text-emerald-400" />}
@@ -568,7 +569,7 @@ export const HabboOffice: React.FC<Props> = ({
       </section>
 
       {/* Clean Bottom Footer */}
-      <footer className="bg-slate-900 border-t border-slate-800 px-3 sm:px-4 py-1.5 flex flex-wrap items-center justify-between text-[9.5px] sm:text-[10px] font-mono text-slate-500 z-20">
+      <footer className="mt-auto bg-slate-900 border-t border-slate-800 px-3 sm:px-4 py-1.5 flex flex-wrap items-center justify-between text-[9.5px] sm:text-[10px] font-mono text-slate-500 z-20">
         <div>The Big Hack 2026 // Challenge 04: Consorzio Clara & Cisco</div>
         <button
           onClick={() => { sound.playClick(); onOpenCustomizer(); }}

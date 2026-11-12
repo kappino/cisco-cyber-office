@@ -1,12 +1,26 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { AvatarConfig, PlayerStats, RoomId } from '../types/game';
 import { sound } from '../utils/audio';
-import { GRID_SIZE, TilePos, Direction, Entity, screenToGrid } from '../canvas/isoMath';
+import {
+  GRID_SIZE,
+  MEZZ_MAX_X,
+  MEZZ_MAX_Y,
+  STAIR_MIN_X,
+  STAIR_MAX_X,
+  TilePos,
+  Direction,
+  Entity,
+  gridToScreen,
+  getElevationAt,
+  screenToGridWithElevation
+} from '../canvas/isoMath';
 import { InteractiveSpot, getInteractiveSpots } from '../data/workstations';
 import {
   drawWarmHabboWalls,
   drawWarmParquetFloor,
   drawSunlightBeams,
+  drawMezzanineFrontRail,
+  drawMezzanineSideRail,
   drawChunkyServerRack,
   drawChunkyAdminDesk,
   drawChunkySocWall,
@@ -19,7 +33,7 @@ import {
   drawChunkyFirepowerWall,
   drawChunkySanVault,
   drawChunkySecBot,
-  drawCiscoHologram
+  drawChunkyCracCoolingUnit
 } from '../canvas/roomRenderers';
 import {
   drawCharmingMarcoNpc,
@@ -45,6 +59,13 @@ interface Props {
   onClearTargetSpot?: () => void;
   coffeeBoostTrigger?: number;
 }
+
+const MIN_WALK = 0.35;
+const MAX_WALK = GRID_SIZE - 0.35;
+
+const isUpperDeck = (x: number, y: number): boolean => x < MEZZ_MAX_X && y < MEZZ_MAX_Y;
+
+const clampWalkable = (v: number): number => Math.max(MIN_WALK, Math.min(MAX_WALK, v));
 
 // Module-level record of completed levels to detect completion edge across minigame unmounts
 const lastKnownLevels = {
@@ -73,20 +94,23 @@ export const IsometricOfficeCanvas: React.FC<Props> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Player position
-  const [playerPos, setPlayerPos] = useState<TilePos>({ x: 4, y: 5 });
+  // Player position (open center-front lounge clear of furniture and stairs)
+  const [playerPos, setPlayerPos] = useState<TilePos>({ x: 3.8, y: 5.2 });
   const [targetPos, setTargetPos] = useState<TilePos | null>(null);
   const [playerDir, setPlayerDir] = useState<Direction>('SE');
 
   const animFrameRef = useRef<number>(0);
   const isWalkingRef = useRef<boolean>(false);
-  const playerPosRef = useRef<TilePos>({ x: 4, y: 5 });
+  const playerPosRef = useRef<TilePos>({ x: 3.8, y: 5.2 });
   const targetPosRef = useRef<TilePos | null>(null);
+  const waypointsRef = useRef<TilePos[]>([]);
   const playerDirRef = useRef<Direction>('SE');
+  const prevRoomRef = useRef<RoomId>(currentRoom);
   const currentSpotIdRef = useRef<string | null>(null);
   const setActiveSpotRef = useRef(setActiveSpot);
   const lastStepFrameRef = useRef<number>(0);
   const stepFootRef = useRef<boolean>(false);
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
 
   const caffeineBoostTimerRef = useRef<number>(0);
   const celebrationTimerRef = useRef<number>(0);
@@ -118,6 +142,31 @@ export const IsometricOfficeCanvas: React.FC<Props> = ({
     { x: 4, y: 5, dir: 'SE', alpha: 0, active: false },
     { x: 4, y: 5, dir: 'SE', alpha: 0, active: false }
   ]);
+
+  // Route player between split levels through the central staircase (2.9, 2.2..3.25)
+  const navigateTo = useCallback((dest: TilePos) => {
+    const cur = playerPosRef.current;
+    const fromUpper = isUpperDeck(cur.x, cur.y);
+    const toUpper = isUpperDeck(dest.x, dest.y);
+
+    if (fromUpper === toUpper) {
+      waypointsRef.current = [];
+      setTargetPos(dest);
+      return;
+    }
+
+    const stairBottom: TilePos = { x: 2.9, y: 3.28 };
+    const stairTop: TilePos = { x: 2.9, y: 2.18 };
+    const route = fromUpper ? [stairTop, stairBottom, dest] : [stairBottom, stairTop, dest];
+    const filtered = route.filter((wp, idx) => {
+      if (idx === route.length - 1) return true;
+      return Math.hypot(wp.x - cur.x, wp.y - cur.y) > 0.25;
+    });
+
+    const first = filtered.shift() || dest;
+    waypointsRef.current = filtered;
+    setTargetPos(first);
+  }, []);
 
   // Handle coffeeBoostTrigger
   useEffect(() => {
@@ -173,9 +222,14 @@ export const IsometricOfficeCanvas: React.FC<Props> = ({
 
   const interactiveSpots = getInteractiveSpots(currentRoom, level1Done, level2Done, level3Done, level4Done);
 
-  // When room changes, position player near the elevator
+  // When room actually changes, position player near the wall elevator
   useEffect(() => {
-    setPlayerPos({ x: 5.2, y: 2.2 });
+    if (prevRoomRef.current === currentRoom) {
+      return;
+    }
+    prevRoomRef.current = currentRoom;
+    waypointsRef.current = [];
+    setPlayerPos({ x: 6.0, y: 1.5 });
     setTargetPos(null);
     setPlayerDir('SW');
     currentSpotIdRef.current = null;
@@ -195,15 +249,15 @@ export const IsometricOfficeCanvas: React.FC<Props> = ({
       const spot = interactiveSpots.find(s => s.id === targetSpotId);
       if (spot) {
         sound.playClick();
-        setTargetPos({ x: spot.interactX, y: spot.interactY });
+        navigateTo({ x: spot.interactX, y: spot.interactY });
       }
       if (onClearTargetSpot) {
         onClearTargetSpot();
       }
     }
-  }, [targetSpotId, onClearTargetSpot, interactiveSpots]);
+  }, [targetSpotId, onClearTargetSpot, interactiveSpots, navigateTo]);
 
-  // Keyboard navigation
+  // Keyboard navigation (respecting mezzanine balustrade except at stairs)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       let dx = 0;
@@ -225,38 +279,71 @@ export const IsometricOfficeCanvas: React.FC<Props> = ({
 
       if (dx !== 0 || dy !== 0) {
         const cur = playerPosRef.current;
-        const nx = Math.max(0.6, Math.min(GRID_SIZE - 1.2, cur.x + dx));
-        const ny = Math.max(0.6, Math.min(GRID_SIZE - 1.2, cur.y + dy));
-        setTargetPos({ x: nx, y: ny });
+        const nx = clampWalkable(cur.x + dx);
+        const ny = clampWalkable(cur.y + dy);
+        // Prevent stepping directly through the glass balustrade with keyboard
+        const curUp = isUpperDeck(cur.x, cur.y);
+        const nxtUp = isUpperDeck(nx, ny);
+        const inStairCorridor = nx >= STAIR_MIN_X && nx <= STAIR_MAX_X;
+        if (curUp !== nxtUp && !inStairCorridor) {
+          navigateTo({ x: nx, y: ny });
+        } else {
+          waypointsRef.current = [];
+          setTargetPos({ x: nx, y: ny });
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeSpot, onTriggerSpot, onChangeRoom]);
+  }, [activeSpot, onTriggerSpot, onChangeRoom, navigateTo]);
 
-  // Canvas click
-  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  // Process canvas tap/click at exact canvas buffer coordinates
+  const processCanvasTap = useCallback((clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const mouseX = (e.clientX - rect.left) * scaleX;
-    const mouseY = (e.clientY - rect.top) * scaleY;
+    const clientLeft = canvas.clientLeft || 0;
+    const clientTop = canvas.clientTop || 0;
+    const contentW = canvas.clientWidth || rect.width;
+    const contentH = canvas.clientHeight || rect.height;
+    if (contentW <= 0 || contentH <= 0) return;
 
-    const grid = screenToGrid(mouseX, mouseY, canvas.width);
-    const targetX = Math.max(0.6, Math.min(GRID_SIZE - 1.2, grid.x));
-    const targetY = Math.max(0.6, Math.min(GRID_SIZE - 1.2, grid.y));
+    const mouseX = ((clientX - rect.left - clientLeft) / contentW) * canvas.width;
+    const mouseY = ((clientY - rect.top - clientTop) / contentH) * canvas.height;
 
     sound.playClick();
 
-    const spotsInClickRange = interactiveSpots.filter(
-      (s) => Math.hypot(s.tileX - targetX, s.tileY - targetY) < 1.3
+    // 1. Check screen-space visual hit against tall/wall-mounted spots (e.g., wall-integrated elevator!)
+    let bestScreenSpot: InteractiveSpot | null = null;
+    let bestScreenDist = 42;
+    for (const s of interactiveSpots) {
+      const sPt = gridToScreen(s.tileX, s.tileY, canvas.width, getElevationAt(s.tileX, s.tileY));
+      const hitY = sPt.y + (s.screenHitOffsetY ?? -18);
+      const d = Math.hypot(mouseX - sPt.x, mouseY - hitY);
+      if (d < bestScreenDist) {
+        bestScreenDist = d;
+        bestScreenSpot = s;
+      }
+    }
+
+    if (bestScreenSpot) {
+      navigateTo({ x: bestScreenSpot.interactX, y: bestScreenSpot.interactY });
+      return;
+    }
+
+    // 2. Elevation-aware floor tile picking across the full walkable surface
+    const grid = screenToGridWithElevation(mouseX, mouseY, canvas.width);
+    const targetX = clampWalkable(grid.x);
+    const targetY = clampWalkable(grid.y);
+
+    // Tight floor proximity check so nearby floor taps still walk cleanly where tapped
+    const spotsInRange = interactiveSpots.filter(
+      (s) => Math.hypot(s.tileX - targetX, s.tileY - targetY) < 0.72
     );
-    const spotClicked = spotsInClickRange.length > 0
-      ? spotsInClickRange.reduce((min, s) =>
+    const spotClicked = spotsInRange.length > 0
+      ? spotsInRange.reduce((min, s) =>
           Math.hypot(s.tileX - targetX, s.tileY - targetY) <
           Math.hypot(min.tileX - targetX, min.tileY - targetY)
             ? s
@@ -265,10 +352,25 @@ export const IsometricOfficeCanvas: React.FC<Props> = ({
       : null;
 
     if (spotClicked) {
-      setTargetPos({ x: spotClicked.interactX, y: spotClicked.interactY });
+      navigateTo({ x: spotClicked.interactX, y: spotClicked.interactY });
     } else {
-      setTargetPos({ x: targetX, y: targetY });
+      navigateTo({ x: targetX, y: targetY });
     }
+  }, [interactiveSpots, navigateTo]);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    pointerDownRef.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    const start = pointerDownRef.current;
+    pointerDownRef.current = null;
+    if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 14) {
+      return; // User was scrolling/swiping the page
+    }
+    processCanvasTap(e.clientX, e.clientY);
   };
 
   // Main Render Loop
@@ -318,30 +420,43 @@ export const IsometricOfficeCanvas: React.FC<Props> = ({
             sound.playFootstep(stepFootRef.current);
           }
 
-          if (dx >= 0 && dy >= 0) setPlayerDir('SE');
-          else if (dx <= 0 && dy >= 0) setPlayerDir('SW');
-          else if (dx >= 0 && dy <= 0) setPlayerDir('NE');
-          else if (dx <= 0 && dy <= 0) setPlayerDir('NW');
+          if (Math.abs(dy) >= Math.abs(dx) * 0.35) {
+            if (dx >= 0 && dy >= 0) setPlayerDir('SE');
+            else if (dx <= 0 && dy >= 0) setPlayerDir('SW');
+            else if (dx >= 0 && dy <= 0) setPlayerDir('NE');
+            else setPlayerDir('NW');
+          } else {
+            if (dx >= 0 && dy >= 0) setPlayerDir('SE');
+            else if (dx <= 0 && dy >= 0) setPlayerDir('SW');
+            else if (dx >= 0 && dy <= 0) setPlayerDir('NE');
+            else setPlayerDir('NW');
+          }
         } else {
           setPlayerPos({ x: tgt.x, y: tgt.y });
-          setTargetPos(null);
-          isWalkingRef.current = false;
-          lastStepFrameRef.current = 0;
+          if (waypointsRef.current.length > 0) {
+            const nextWp = waypointsRef.current.shift()!;
+            setTargetPos(nextWp);
+          } else {
+            setTargetPos(null);
+            isWalkingRef.current = false;
+            lastStepFrameRef.current = 0;
+          }
         }
       } else {
         isWalkingRef.current = false;
         lastStepFrameRef.current = 0;
       }
 
-      // Sitting & workstation orientation detection (Milestone 3 / R2)
-      // Check proximity to terminal (5, 2) [interact (5, 3.2)] or wireshark (2, 2) [interact (2.5, 3.2)]
-      const isNearTerminal = currentRoom === 'office' && Math.hypot(5 - cur.x, 3.2 - cur.y) < 0.45;
-      const isNearWireshark = currentRoom === 'datacenter_vault' && Math.hypot(2.5 - cur.x, 3.2 - cur.y) < 0.45;
+      // Sitting & workstation orientation detection:
+      // Terminal is at (2.9, 0.85) with chair at (2.9, 1.85) -> player faces NE toward monitors!
+      // Wireshark is at (2.3, 0.85) with chair at (2.3, 1.85) -> player faces NE toward monitor!
+      const isNearTerminal = currentRoom === 'office' && Math.hypot(2.9 - cur.x, 1.85 - cur.y) < 0.45;
+      const isNearWireshark = currentRoom === 'datacenter_vault' && Math.hypot(2.3 - cur.x, 1.85 - cur.y) < 0.45;
       const isSitting = !isWalkingRef.current && (isNearTerminal || isNearWireshark);
 
-      if (isSitting && playerDirRef.current !== 'NW') {
-        playerDirRef.current = 'NW';
-        setPlayerDir('NW');
+      if (isSitting && playerDirRef.current !== 'NE') {
+        playerDirRef.current = 'NE';
+        setPlayerDir('NE');
       }
 
       // Update speed trail circular buffer (Zero heap allocations)
@@ -374,7 +489,6 @@ export const IsometricOfficeCanvas: React.FC<Props> = ({
           echoes[i].alpha = baseAlphas[i] * timerFade;
         }
       } else {
-        // Smoothly fade out active echoes when stopped
         for (let i = 0; i < 3; i++) {
           if (echoes[i].active) {
             echoes[i].alpha *= 0.82;
@@ -391,9 +505,9 @@ export const IsometricOfficeCanvas: React.FC<Props> = ({
         }
       }
 
-      // Proximity check (triggers only when nearby station changes) - Nearest Neighbor resolution
+      // Proximity check (triggers only when nearby station changes)
       const p = playerPosRef.current;
-      const inRange = spots.filter(s => Math.hypot(s.interactX - p.x, s.interactY - p.y) < 1.3);
+      const inRange = spots.filter(s => Math.hypot(s.interactX - p.x, s.interactY - p.y) < 1.2);
       const nearby = inRange.length > 0
         ? inRange.reduce((min, s) =>
             Math.hypot(s.interactX - p.x, s.interactY - p.y) <
@@ -414,11 +528,11 @@ export const IsometricOfficeCanvas: React.FC<Props> = ({
 
       // --- Room Atmosphere Backdrop ---
       const bgGrad = ctx.createRadialGradient(
-        canvas.width / 2, 
-        canvas.height / 2, 
-        80, 
-        canvas.width / 2, 
-        canvas.height / 2, 
+        canvas.width / 2,
+        canvas.height / 2,
+        80,
+        canvas.width / 2,
+        canvas.height / 2,
         450
       );
       if (currentRoom === 'office') {
@@ -431,34 +545,71 @@ export const IsometricOfficeCanvas: React.FC<Props> = ({
       ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // --- 1. ROOM WALLS & FLOORS ---
+      // Final destination marker (last waypoint if multi-step, else tgt)
+      const finalTgt = waypointsRef.current.length > 0
+        ? waypointsRef.current[waypointsRef.current.length - 1]
+        : tgt;
+
+      // --- 1. ROOM WALLS, WALL-INTEGRATED ELEVATOR & SPLIT-LEVEL FLOORS ---
       if (currentRoom === 'office') {
         drawWarmHabboWalls(ctx, canvas.width, frame);
-        drawWarmParquetFloor(ctx, canvas.width, tgt, frame);
+        drawChunkyIndustrialElevator(ctx, 6.3, 0.2, canvas.width, 'office', frame);
+        drawWarmParquetFloor(ctx, canvas.width, finalTgt, frame);
         drawSunlightBeams(ctx, canvas.width);
       } else {
         drawUndergroundDatacenterWalls(ctx, canvas.width, frame);
-        drawUndergroundFloor(ctx, canvas.width, tgt, frame);
+        drawChunkyIndustrialElevator(ctx, 6.3, 0.2, canvas.width, 'datacenter_vault', frame);
+        drawUndergroundFloor(ctx, canvas.width, finalTgt, frame);
       }
 
-      // --- 2. DEPTH-SORTED ISOMETRIC ENTITIES ---
+      // --- 2. DEPTH-SORTED ISOMETRIC ENTITIES (Clean, Ordered, Uncluttered) ---
       const entities: Entity[] = [
         {
           id: 'player',
           depth: p.x + p.y,
           draw: (context) => drawCharmingHabboAvatar(
-            context, 
-            p, 
-            canvas.width, 
-            playerDirRef.current, 
-            isWalkingRef.current, 
-            frame, 
-            avatar, 
+            context,
+            p,
+            canvas.width,
+            playerDirRef.current,
+            isWalkingRef.current,
+            frame,
+            avatar,
             stats.level,
             isSitting,
             caffeineBoostTimerRef.current,
             celebrationTimerRef.current,
             speedTrailEchoesRef.current
+          )
+        },
+        // Mezzanine tempered glass balustrade segments sorted by depth
+        {
+          id: 'rail_front_left',
+          depth: MEZZ_MAX_Y + 1.0,
+          draw: (context) => drawMezzanineFrontRail(
+            context,
+            canvas.width,
+            'left',
+            currentRoom === 'office' ? 'rgba(56, 189, 248, 0.16)' : 'rgba(6, 182, 212, 0.22)'
+          )
+        },
+        {
+          id: 'rail_front_right',
+          depth: MEZZ_MAX_Y + 4.4,
+          draw: (context) => drawMezzanineFrontRail(
+            context,
+            canvas.width,
+            'right',
+            currentRoom === 'office' ? 'rgba(56, 189, 248, 0.16)' : 'rgba(6, 182, 212, 0.22)'
+          )
+        },
+        {
+          id: 'rail_side',
+          depth: MEZZ_MAX_X + 1.5,
+          draw: (context) => drawMezzanineSideRail(
+            context,
+            canvas.width,
+            currentRoom === 'office' ? 'rgba(56, 189, 248, 0.16)' : 'rgba(6, 182, 212, 0.22)'
           )
         }
       ];
@@ -466,78 +617,63 @@ export const IsometricOfficeCanvas: React.FC<Props> = ({
       if (currentRoom === 'office') {
         entities.push(
           {
-            id: 'cisco_hologram',
-            depth: 4 + 4,
-            draw: (context) => drawCiscoHologram(context, 4, 4, canvas.width, frame, 'office')
-          },
-          {
-            id: 'marco',
-            depth: 2 + 5,
-            draw: (context) => drawCharmingMarcoNpc(context, 2, 5, canvas.width, frame)
-          },
-          {
             id: 'rack',
-            depth: 2 + 2,
-            draw: (context) => drawChunkyServerRack(context, 2, 2, canvas.width, level1Done, frame)
+            depth: 0.9 + 1.0,
+            draw: (context) => drawChunkyServerRack(context, 0.9, 1.0, canvas.width, level1Done, frame)
           },
           {
             id: 'terminal',
-            depth: 5 + 2,
-            draw: (context) => drawChunkyAdminDesk(context, 5, 2, canvas.width, level2Done, frame)
+            depth: 2.9 + 0.85,
+            draw: (context) => drawChunkyAdminDesk(context, 2.9, 0.85, canvas.width, level2Done, frame, isSitting)
           },
           {
             id: 'umbrella',
-            depth: 6 + 4,
-            draw: (context) => drawChunkySocWall(context, 6, 4, canvas.width, level3Done, frame)
+            depth: 6.7 + 4.1,
+            draw: (context) => drawChunkySocWall(context, 6.7, 4.1, canvas.width, level3Done, frame)
           },
           {
             id: 'coffee',
-            depth: 1 + 6,
-            draw: (context) => drawChunkyNeapolitanBar(context, 1, 6, canvas.width, frame)
+            depth: 0.9 + 5.1,
+            draw: (context) => drawChunkyNeapolitanBar(context, 0.9, 5.1, canvas.width, frame)
           },
           {
-            id: 'elevator_down',
-            depth: 6 + 1,
-            draw: (context) => drawChunkyIndustrialElevator(context, 6, 1, canvas.width, 'office', frame)
+            id: 'marco',
+            depth: 2.2 + 6.5,
+            draw: (context) => drawCharmingMarcoNpc(context, 2.2, 6.5, canvas.width, frame)
           },
           {
-            id: 'plant',
-            depth: 7 + 7,
-            draw: (context) => drawChunkyMonstera(context, 7, 7, canvas.width)
+            id: 'plant_sw',
+            depth: 0.65 + 7.15,
+            draw: (context) => drawChunkyMonstera(context, 0.65, 7.15, canvas.width)
           }
         );
       } else {
-        // Underground Datacenter Vault entities
+        // Underground Datacenter Vault entities (Clean Two-Level Layout)
         entities.push(
           {
-            id: 'datacenter_hologram',
-            depth: 4 + 4,
-            draw: (context) => drawCiscoHologram(context, 4, 4, canvas.width, frame, 'datacenter_vault')
-          },
-          {
             id: 'wireshark',
-            depth: 2 + 2,
-            draw: (context) => drawChunkyWiresharkConsole(context, 2, 2, canvas.width, level4Done, frame)
+            depth: 2.3 + 0.85,
+            draw: (context) => drawChunkyWiresharkConsole(context, 2.3, 0.85, canvas.width, level4Done, frame, isSitting)
           },
           {
             id: 'firepower',
-            depth: 5 + 2,
-            draw: (context) => drawChunkyFirepowerWall(context, 5, 2, canvas.width, frame)
+            depth: 4.1 + 0.9,
+            draw: (context) => drawChunkyFirepowerWall(context, 4.1, 0.9, canvas.width, frame)
           },
           {
             id: 'san_storage',
-            depth: 2 + 5,
-            draw: (context) => drawChunkySanVault(context, 2, 5, canvas.width, frame)
-          },
-          {
-            id: 'elevator_up',
-            depth: 6 + 1,
-            draw: (context) => drawChunkyIndustrialElevator(context, 6, 1, canvas.width, 'datacenter_vault', frame)
+            depth: 0.95 + 4.8,
+            draw: (context) => drawChunkySanVault(context, 0.95, 4.8, canvas.width, frame)
           },
           {
             id: 'secbot',
-            depth: 1 + 6,
-            draw: (context) => drawChunkySecBot(context, 1, 6, canvas.width, frame)
+            depth: 1.3 + 6.7,
+            draw: (context) => drawChunkySecBot(context, 1.3, 6.7, canvas.width, frame)
+          },
+          {
+            id: 'crac_cooling',
+            depth: 6.75 + 4.5,
+            draw: (context) => drawChunkyCracCoolingUnit(context, 6.75, 4.5, canvas.width, frame)
           }
         );
       }
@@ -558,8 +694,10 @@ export const IsometricOfficeCanvas: React.FC<Props> = ({
         ref={canvasRef}
         width={840}
         height={620}
-        onClick={handleCanvasClick}
-        className="w-full max-w-4xl h-auto bg-slate-950 rounded-2xl border-4 border-slate-700/80 shadow-2xl cursor-pointer"
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        style={{ touchAction: 'manipulation' }}
+        className="w-full max-w-4xl h-auto block bg-slate-950 rounded-2xl border-4 border-slate-700/80 shadow-2xl cursor-pointer select-none"
         title="Tocca il pavimento per muoverti o avvicinati a una postazione per interagire!"
       />
     </div>

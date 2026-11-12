@@ -1,7 +1,24 @@
 import React from 'react';
 import { sound } from '../utils/audio';
 import { Badge } from '../types/game';
-import { ArrowLeft, Trophy, CheckCircle2, Lock, Award } from 'lucide-react';
+import { ArrowLeft, Trophy, CheckCircle2, Lock, Award, Cable, Terminal, Shield, Radar } from 'lucide-react';
+
+const renderBadgeVectorIcon = (id: string) => {
+  switch (id) {
+    case 'cable-master':
+      return <Cable className="w-7 h-7 text-amber-300" />;
+    case 'ios-ninja':
+      return <Terminal className="w-7 h-7 text-emerald-400" />;
+    case 'umbrella-shield':
+      return <Shield className="w-7 h-7 text-sky-400" />;
+    case 'packet-detective':
+      return <Radar className="w-7 h-7 text-cyan-400" />;
+    case 'grandmaster':
+      return <Trophy className="w-7 h-7 text-amber-400" />;
+    default:
+      return <Award className="w-7 h-7 text-amber-300" />;
+  }
+};
 
 interface Props {
   badges: Badge[];
@@ -55,7 +72,7 @@ export const BadgeShowcase: React.FC<Props> = ({ badges, onBack }) => {
                   : 'bg-slate-900 border-slate-800 text-slate-600'
               }`}
             >
-              {b.unlocked ? b.icon : <Lock className="w-6 h-6" />}
+              {b.unlocked ? renderBadgeVectorIcon(b.id) : <Lock className="w-6 h-6" />}
             </div>
 
             <div className="flex-1">

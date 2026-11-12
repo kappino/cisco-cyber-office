@@ -11,7 +11,8 @@ import {
   FileText, 
   AlertTriangle,
   Terminal,
-  Activity
+  Activity,
+  Radar
 } from 'lucide-react';
 
 interface Props {
@@ -220,7 +221,9 @@ export const WiresharkInspector: React.FC<Props> = ({
           </button>
 
           <div className="flex items-center gap-2">
-            <span className="text-xl">🦈</span>
+            <div className="w-8 h-8 rounded-lg bg-cyan-500/15 border border-cyan-500/40 flex items-center justify-center shrink-0">
+              <Radar className="w-4 h-4 text-cyan-400" />
+            </div>
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="text-xs sm:text-sm font-black text-white tracking-wider">WIRESHARK DPI</span>

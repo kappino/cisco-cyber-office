@@ -10,6 +10,7 @@ export interface InteractiveSpot {
   tileY: number;
   interactX: number;
   interactY: number;
+  screenHitOffsetY?: number;
   screen?: GameScreen;
   isNpc?: boolean;
   isCoffee?: boolean;
@@ -34,10 +35,11 @@ export const getInteractiveSpots = (
         tag: 'LAYER 4-7 INSPECTION',
         desc: 'Deep Packet Inspection: decifra l\'esfiltrazione DNS e analizza i pacchetti TCP',
         icon: '🦈',
-        tileX: 2,
-        tileY: 2,
-        interactX: 2.5,
-        interactY: 3.2,
+        tileX: 2.3,
+        tileY: 0.85,
+        interactX: 2.3,
+        interactY: 1.85,
+        screenHitOffsetY: -18,
         screen: 'wireshark',
         completed: level4Done
       },
@@ -47,10 +49,11 @@ export const getInteractiveSpots = (
         tag: 'NEXT-GEN FIREWALL',
         desc: 'Appliance NGFW con IPS/IDS hardware contro attacchi brute-force',
         icon: '🛡️',
-        tileX: 5,
-        tileY: 2,
-        interactX: 5,
-        interactY: 3.2
+        tileX: 4.1,
+        tileY: 0.9,
+        interactX: 4.1,
+        interactY: 1.9,
+        screenHitOffsetY: -24
       },
       {
         id: 'san_storage',
@@ -58,10 +61,11 @@ export const getInteractiveSpots = (
         tag: 'FIBRE CHANNEL SAN',
         desc: 'Array di storage criptato con le istantanee di backup di NetCorp',
         icon: '💾',
-        tileX: 2,
-        tileY: 5,
-        interactX: 2.8,
-        interactY: 5.2
+        tileX: 0.95,
+        tileY: 4.8,
+        interactX: 1.95,
+        interactY: 4.8,
+        screenHitOffsetY: -24
       },
       {
         id: 'elevator_up',
@@ -69,10 +73,11 @@ export const getInteractiveSpots = (
         tag: 'TRANSITO VERTICALE',
         desc: 'Ritorna al piano superiore: Ufficio Operativo con vista Vesuvio',
         icon: '🛗',
-        tileX: 6,
-        tileY: 1,
-        interactX: 5.8,
-        interactY: 1.8,
+        tileX: 6.3,
+        tileY: 0.2,
+        interactX: 6.3,
+        interactY: 1.1,
+        screenHitOffsetY: -45,
         isElevator: true,
         targetRoom: 'office'
       },
@@ -82,16 +87,17 @@ export const getInteractiveSpots = (
         tag: 'AUTOMATION DRONE',
         desc: 'Drone di pattuglia per il monitoraggio della temperatura dell\'aria e dei rack',
         icon: '🤖',
-        tileX: 1,
-        tileY: 6,
-        interactX: 1.8,
-        interactY: 5.8,
+        tileX: 1.3,
+        tileY: 6.7,
+        interactX: 2.2,
+        interactY: 6.3,
+        screenHitOffsetY: -20,
         isBot: true
       }
     ];
   }
 
-  // Default: Office Room (Floor 1)
+  // Default: Office Room (Floor 1) — Split-Level Ordered Layout
   return [
     {
       id: 'rack',
@@ -99,10 +105,11 @@ export const getInteractiveSpots = (
       tag: 'LAYER 1-2 HARDWARE',
       desc: 'Cablaggio fisico patch panel e porte Trunk/Access',
       icon: '🔌',
-      tileX: 2,
-      tileY: 2,
-      interactX: 2.5,
-      interactY: 3.2,
+      tileX: 0.9,
+      tileY: 1.0,
+      interactX: 1.75,
+      interactY: 1.75,
+      screenHitOffsetY: -32,
       screen: 'rack',
       completed: level1Done
     },
@@ -112,10 +119,11 @@ export const getInteractiveSpots = (
       tag: 'LAYER 3 ROUTING',
       desc: 'Console Cisco IOS: risolvi il loop e la VLAN 20',
       icon: '💻',
-      tileX: 5,
-      tileY: 2,
-      interactX: 5,
-      interactY: 3.2,
+      tileX: 2.9,
+      tileY: 0.85,
+      interactX: 2.9,
+      interactY: 1.85,
+      screenHitOffsetY: -18,
       screen: 'terminal',
       completed: level2Done
     },
@@ -125,10 +133,11 @@ export const getInteractiveSpots = (
       tag: 'LAYER 7 SECURITY',
       desc: 'Cisco Umbrella: blocca il dominio Ransomware C2',
       icon: '🛡️',
-      tileX: 6,
-      tileY: 4,
-      interactX: 5.5,
-      interactY: 4.8,
+      tileX: 6.7,
+      tileY: 4.1,
+      interactX: 5.7,
+      interactY: 4.1,
+      screenHitOffsetY: -24,
       screen: 'umbrella',
       completed: level3Done
     },
@@ -138,10 +147,11 @@ export const getInteractiveSpots = (
       tag: 'MENTOR CISCO',
       desc: 'Parla con il mentor per consigli tecnici e lore',
       icon: '👨‍💻',
-      tileX: 2,
-      tileY: 5,
-      interactX: 2.8,
-      interactY: 5.2,
+      tileX: 2.2,
+      tileY: 6.5,
+      interactX: 3.0,
+      interactY: 6.1,
+      screenHitOffsetY: -22,
       isNpc: true
     },
     {
@@ -150,22 +160,24 @@ export const getInteractiveSpots = (
       tag: 'STAMINA & SPEED',
       desc: 'Prendi un espresso fumante e una fetta di pizza margherita!',
       icon: '☕',
-      tileX: 1,
-      tileY: 6,
-      interactX: 1.8,
-      interactY: 5.8,
+      tileX: 0.9,
+      tileY: 5.1,
+      interactX: 1.9,
+      interactY: 5.1,
+      screenHitOffsetY: -14,
       isCoffee: true
     },
     {
       id: 'elevator_down',
       name: 'Ascensore Datacenter (Livello -1)',
       tag: 'TRANSITO VERTICALE',
-      desc: 'Prendi l\'ascensore industriale per scendere nel caveau sotterraneo dei server',
+      desc: 'Prendi l\'ascensore integrato per scendere nel caveau sotterraneo dei server',
       icon: '🛗',
-      tileX: 6,
-      tileY: 1,
-      interactX: 5.8,
-      interactY: 1.8,
+      tileX: 6.3,
+      tileY: 0.2,
+      interactX: 6.3,
+      interactY: 1.1,
+      screenHitOffsetY: -45,
       isElevator: true,
       targetRoom: 'datacenter_vault'
     }

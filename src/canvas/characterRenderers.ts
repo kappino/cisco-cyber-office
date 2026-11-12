@@ -1,5 +1,5 @@
 import { AvatarConfig } from '../types/game';
-import { Direction, TilePos, gridToScreen } from './isoMath';
+import { Direction, TilePos, gridToScreen, getElevationAt } from './isoMath';
 
 // 9. Charming Marco NPC
 export const drawCharmingMarcoNpc = (
@@ -9,7 +9,7 @@ export const drawCharmingMarcoNpc = (
   canvasW: number,
   frame: number
 ) => {
-  const pt = gridToScreen(gx, gy, canvasW);
+  const pt = gridToScreen(gx, gy, canvasW, getElevationAt(gx, gy));
   const breathe = Math.sin(frame * 0.08) * 1.5;
 
   // Shadow
@@ -306,7 +306,7 @@ export const drawGoldenSpeedTrails = (
     const trail = trails[i];
     if (!trail.active || trail.alpha <= 0.01) continue;
 
-    const tPt = gridToScreen(trail.x, trail.y, canvasW);
+    const tPt = gridToScreen(trail.x, trail.y, canvasW, getElevationAt(trail.x, trail.y));
     const alpha = trail.alpha;
 
     // 1. Golden Floor Speed Aura Oval
@@ -359,10 +359,10 @@ export const drawCharmingHabboAvatar = (
     drawGoldenSpeedTrails(ctx, speedTrails, canvasW, frame);
   }
 
-  const pt = gridToScreen(p.x, p.y, canvasW);
+  const pt = gridToScreen(p.x, p.y, canvasW, getElevationAt(p.x, p.y));
   const isCelebrating = celebrationTimer > 0;
   const jumpY = isCelebrating ? -Math.abs(Math.sin(frame * 0.18)) * 18 : 0;
-  const sitOffset = (!isCelebrating && isSitting) ? 8 : 0;
+  const sitOffset = (!isCelebrating && isSitting) ? 6 : 0;
   const walkCycle = isWalking ? Math.sin(frame * 0.35) : 0;
   const breathe = isWalking
     ? 0
@@ -372,6 +372,8 @@ export const drawCharmingHabboAvatar = (
         ? Math.sin(frame * 0.1) * 0.8
         : Math.sin(frame * 0.08) * 1.5;
   const yShift = isCelebrating ? jumpY : (sitOffset + breathe);
+  const isFacingAway = dir === 'NE' || dir === 'NW';
+  const facingSign = (dir === 'NE' || dir === 'SE') ? 1 : -1;
 
   // Floor Shadow & Office Chair Base
   if (isCelebrating) {
@@ -384,16 +386,25 @@ export const drawCharmingHabboAvatar = (
   } else if (isSitting) {
     // Swivel chair floor shadow
     ctx.beginPath();
-    ctx.ellipse(pt.x, pt.y + 17, 18, 7, 0, 0, Math.PI * 2);
+    ctx.ellipse(pt.x, pt.y + 17, 19, 8, 0, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
     ctx.fill();
+
+    // 5-star caster base legs
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(pt.x, pt.y + 10); ctx.lineTo(pt.x, pt.y + 16);
+    ctx.moveTo(pt.x - 10, pt.y + 17); ctx.lineTo(pt.x + 10, pt.y + 15);
+    ctx.moveTo(pt.x - 8, pt.y + 14); ctx.lineTo(pt.x + 8, pt.y + 18);
+    ctx.stroke();
 
     // Ergonomic office chair seat cushion
     ctx.fillStyle = '#1e293b';
     ctx.beginPath();
-    ctx.ellipse(pt.x, pt.y + 7, 16, 7, 0, 0, Math.PI * 2);
+    ctx.ellipse(pt.x, pt.y + 8, 15, 7, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#334155';
+    ctx.strokeStyle = '#475569';
     ctx.lineWidth = 1.5;
     ctx.stroke();
   } else {
@@ -406,24 +417,37 @@ export const drawCharmingHabboAvatar = (
 
   // Legs, Thighs & Shoes
   if (isSitting && !isCelebrating) {
-    // Horizontal bent thighs resting forward on the office chair
-    ctx.fillStyle = avatar.pantsColor;
-    ctx.fillRect(pt.x - 10, pt.y + 2, 9, 6); // left bent thigh
-    ctx.fillRect(pt.x + 1, pt.y + 2, 9, 6);  // right bent thigh
-
-    // Lower legs dropping vertically toward floor
-    ctx.fillRect(pt.x - 8, pt.y + 7, 7, 8);  // left shin
-    ctx.fillRect(pt.x + 2, pt.y + 7, 7, 8);  // right shin
-
-    // Shoes
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(pt.x - 8, pt.y + 13, 7, 4);
-    ctx.fillRect(pt.x + 2, pt.y + 13, 7, 4);
-
-    // White Sneaker Soles resting on floor
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(pt.x - 8, pt.y + 16, 7, 2);
-    ctx.fillRect(pt.x + 2, pt.y + 16, 7, 2);
+    if (isFacingAway) {
+      // Isometric 3/4 seated legs tucked forward toward desk (NE = +x/-y, NW = -x/-y)
+      const legDir = dir === 'NE' ? 1 : -1;
+      ctx.fillStyle = avatar.pantsColor;
+      // Angled thighs reaching toward desk
+      ctx.fillRect(pt.x - 6 + legDir * 4, pt.y - 1, 7, 7);
+      ctx.fillRect(pt.x + 1 + legDir * 5, pt.y + 1, 7, 7);
+      // Lower legs dropping under chair
+      ctx.fillRect(pt.x - 5 + legDir * 6, pt.y + 5, 6, 8);
+      ctx.fillRect(pt.x + 2 + legDir * 6, pt.y + 6, 6, 8);
+      // Shoes
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(pt.x - 5 + legDir * 6, pt.y + 12, 6, 3);
+      ctx.fillRect(pt.x + 2 + legDir * 6, pt.y + 13, 6, 3);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(pt.x - 5 + legDir * 6, pt.y + 14, 6, 1.5);
+      ctx.fillRect(pt.x + 2 + legDir * 6, pt.y + 15, 6, 1.5);
+    } else {
+      // Front-facing seated legs
+      ctx.fillStyle = avatar.pantsColor;
+      ctx.fillRect(pt.x - 10, pt.y + 2, 9, 6);
+      ctx.fillRect(pt.x + 1, pt.y + 2, 9, 6);
+      ctx.fillRect(pt.x - 8, pt.y + 7, 7, 8);
+      ctx.fillRect(pt.x + 2, pt.y + 7, 7, 8);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(pt.x - 8, pt.y + 13, 7, 4);
+      ctx.fillRect(pt.x + 2, pt.y + 13, 7, 4);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(pt.x - 8, pt.y + 16, 7, 2);
+      ctx.fillRect(pt.x + 2, pt.y + 16, 7, 2);
+    }
   } else {
     // Standing / Walking / Celebrating legs & shoes
     const legOffset = walkCycle * 4;
@@ -486,23 +510,34 @@ export const drawCharmingHabboAvatar = (
     ctx.fillStyle = avatar.skinTone;
     ctx.fillRect(pt.x + 17, pt.y - 49 + yShift - armWave, 5, 5);
   } else if (isSitting) {
-    // Typing arms reaching forward to desk surface
-    ctx.fillStyle = avatar.shirtColor;
-    ctx.fillRect(pt.x - 16, pt.y - 24 + yShift, 4, 12); // left upper sleeve
-    ctx.fillRect(pt.x + 12, pt.y - 24 + yShift, 4, 12); // right upper sleeve
-
-    // Forearms resting forward on desk
-    ctx.fillRect(pt.x - 15, pt.y - 14 + yShift, 6, 4);
-    ctx.fillRect(pt.x + 9, pt.y - 14 + yShift, 6, 4);
-
-    // Typing hands on desk surface with alternating finger tap animation (frame % 10 < 5)
     const isTapLeft = (frame % 10 < 5);
     const leftHandOffset = isTapLeft ? 1.5 : -1.5;
     const rightHandOffset = isTapLeft ? -1.5 : 1.5;
 
-    ctx.fillStyle = avatar.skinTone;
-    ctx.fillRect(pt.x - 13, pt.y - 12 + yShift + leftHandOffset, 5, 4);
-    ctx.fillRect(pt.x + 8, pt.y - 12 + yShift + rightHandOffset, 5, 4);
+    if (isFacingAway) {
+      // Arms reaching forward-upward into the desk keyboard (NE = +x, NW = -x)
+      const reachX = dir === 'NE' ? 1 : -1;
+      ctx.fillStyle = avatar.shirtColor;
+      ctx.fillRect(pt.x - 15 + reachX * 3, pt.y - 26 + yShift, 5, 11);
+      ctx.fillRect(pt.x + 10 + reachX * 3, pt.y - 26 + yShift, 5, 11);
+      // Forearms angled toward desk surface
+      ctx.fillRect(pt.x - 12 + reachX * 7, pt.y - 22 + yShift, 6, 4);
+      ctx.fillRect(pt.x + 8 + reachX * 7, pt.y - 20 + yShift, 6, 4);
+      // Typing hands
+      ctx.fillStyle = avatar.skinTone;
+      ctx.fillRect(pt.x - 9 + reachX * 10, pt.y - 22 + yShift + leftHandOffset, 4, 4);
+      ctx.fillRect(pt.x + 10 + reachX * 10, pt.y - 20 + yShift + rightHandOffset, 4, 4);
+    } else {
+      // Front-facing typing arms
+      ctx.fillStyle = avatar.shirtColor;
+      ctx.fillRect(pt.x - 16, pt.y - 24 + yShift, 4, 12);
+      ctx.fillRect(pt.x + 12, pt.y - 24 + yShift, 4, 12);
+      ctx.fillRect(pt.x - 15, pt.y - 14 + yShift, 6, 4);
+      ctx.fillRect(pt.x + 9, pt.y - 14 + yShift, 6, 4);
+      ctx.fillStyle = avatar.skinTone;
+      ctx.fillRect(pt.x - 13, pt.y - 12 + yShift + leftHandOffset, 5, 4);
+      ctx.fillRect(pt.x + 8, pt.y - 12 + yShift + rightHandOffset, 5, 4);
+    }
   } else {
     // Standing arms
     const armSwing = isWalking ? -walkCycle * 3 : 0;
@@ -516,6 +551,19 @@ export const drawCharmingHabboAvatar = (
     ctx.fillRect(pt.x + 13, pt.y - 10 + yShift - armSwing, 4, 5);
   }
 
+  // Ergonomic Chair Backrest (drawn OVER back of seated avatar when facing away, so avatar sits *inside* the chair!)
+  if (isSitting && !isCelebrating && isFacingAway) {
+    const backOffsetX = dir === 'NE' ? -6 : 6;
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(pt.x - 10 + backOffsetX, pt.y - 24 + yShift, 20, 20);
+    ctx.strokeStyle = '#00bceb';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(pt.x - 10 + backOffsetX, pt.y - 24 + yShift, 20, 20);
+    // Lumbar mesh highlight
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(pt.x - 7 + backOffsetX, pt.y - 21 + yShift, 14, 14);
+  }
+
   // Ears
   ctx.fillStyle = avatar.skinTone;
   ctx.fillRect(pt.x - 13, pt.y - 41 + yShift, 2, 5);
@@ -524,9 +572,11 @@ export const drawCharmingHabboAvatar = (
   // Head
   ctx.fillStyle = avatar.skinTone;
   ctx.fillRect(pt.x - 11, pt.y - 48 + yShift, 22, 20);
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 1;
   ctx.strokeRect(pt.x - 11, pt.y - 48 + yShift, 22, 20);
 
-  // Face Direction & Expressive Eyes
+  // Face Direction & Expressive Eyes (or 3/4 Back-of-Head Coverage when facing NE / NW)
   if (dir === 'SE' || dir === 'SW') {
     const shift = dir === 'SE' ? 2 : -2;
 
@@ -536,17 +586,14 @@ export const drawCharmingHabboAvatar = (
       ctx.lineWidth = 1.8;
       ctx.lineCap = 'round';
 
-      // Left eye (^)
       ctx.beginPath();
       ctx.arc(pt.x - 4 + shift, pt.y - 39 + yShift, 3, Math.PI * 1.15, Math.PI * 1.85);
       ctx.stroke();
 
-      // Right eye (^)
       ctx.beginPath();
       ctx.arc(pt.x + 4 + shift, pt.y - 39 + yShift, 3, Math.PI * 1.15, Math.PI * 1.85);
       ctx.stroke();
 
-      // Joyful open mouth / smile (:D)
       ctx.fillStyle = '#b91c1c';
       ctx.beginPath();
       ctx.arc(pt.x + shift, pt.y - 33 + yShift, 4.5, 0, Math.PI);
@@ -555,14 +602,12 @@ export const drawCharmingHabboAvatar = (
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Rosy blush cheeks
       ctx.fillStyle = 'rgba(244, 63, 94, 0.45)';
       ctx.beginPath();
       ctx.ellipse(pt.x - 7 + shift, pt.y - 34 + yShift, 2.5, 1.5, 0, 0, Math.PI * 2);
       ctx.ellipse(pt.x + 7 + shift, pt.y - 34 + yShift, 2.5, 1.5, 0, 0, Math.PI * 2);
       ctx.fill();
     } else {
-      // Normal open eyes and subtle smile
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(pt.x - 6 + shift, pt.y - 41 + yShift, 4, 5);
       ctx.fillRect(pt.x + 2 + shift, pt.y - 41 + yShift, 4, 5);
@@ -570,7 +615,6 @@ export const drawCharmingHabboAvatar = (
       ctx.fillRect(pt.x - 5 + shift, pt.y - 40 + yShift, 3, 4);
       ctx.fillRect(pt.x + 3 + shift, pt.y - 40 + yShift, 3, 4);
 
-      // Smile
       ctx.strokeStyle = '#0f172a';
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -592,6 +636,30 @@ export const drawCharmingHabboAvatar = (
       ctx.beginPath();
       ctx.moveTo(pt.x - 2 + shift, pt.y - 39 + yShift);
       ctx.lineTo(pt.x + 2 + shift, pt.y - 39 + yShift);
+      ctx.stroke();
+    }
+  } else {
+    // Facing NE or NW: Full back-of-head hair coverage + subtle 3/4 side cheek & accessory temple!
+    ctx.fillStyle = avatar.hairColor;
+    // Leave only a 4px sliver of side-cheek on the facing edge (right for NE, left for NW)
+    const hairX = dir === 'NE' ? pt.x - 11 : pt.x - 7;
+    ctx.fillRect(hairX, pt.y - 48 + yShift, 18, 17);
+    // Nape shadow contour
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.16)';
+    ctx.fillRect(hairX, pt.y - 35 + yShift, 18, 4);
+
+    // Side profile glasses temple / cyber-visor band wrapping around the visible side
+    if (avatar.accessory === 'cyber-visor') {
+      ctx.fillStyle = '#00bceb';
+      ctx.fillRect(dir === 'NE' ? pt.x + 4 : pt.x - 11, pt.y - 42 + yShift, 7, 5);
+    } else if (avatar.accessory === 'glasses') {
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      const gxEdge = pt.x + facingSign * 11;
+      const gxEar = pt.x + facingSign * 5;
+      ctx.moveTo(gxEar, pt.y - 39 + yShift);
+      ctx.lineTo(gxEdge, pt.y - 39 + yShift);
       ctx.stroke();
     }
   }
