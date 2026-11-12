@@ -1,4 +1,6 @@
-export type GameScreen = 'office' | 'rack' | 'terminal' | 'umbrella' | 'badges';
+export type GameScreen = 'office' | 'rack' | 'terminal' | 'umbrella' | 'wireshark' | 'badges';
+
+export type RoomId = 'office' | 'datacenter_vault';
 
 export interface Badge {
   id: string;
@@ -42,6 +44,27 @@ export interface SecurityEvent {
   category: 'Clean' | 'Malware C2' | 'Phishing' | 'Suspicious';
   actionTaken: 'Allowed' | 'Blocked';
   isThreat: boolean;
+}
+
+// Wireshark Deep Packet Inspection Types
+export interface PacketItem {
+  id: number;
+  time: string;
+  source: string;
+  destination: string;
+  protocol: 'TCP' | 'UDP' | 'DNS' | 'HTTP' | 'TLSv1.3';
+  length: number;
+  info: string;
+  isMalicious?: boolean;
+  hexData: string;
+  decodedPayload: string;
+  details: {
+    frame: string;
+    ethernet: string;
+    ip: string;
+    transport: string;
+    application: string;
+  };
 }
 
 // RPG & Avatar Customization Types

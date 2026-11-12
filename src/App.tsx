@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { GameScreen, Badge, AvatarConfig, PlayerStats, RpgSkills } from './types/game';
+import { GameScreen, RoomId, Badge, AvatarConfig, PlayerStats, RpgSkills } from './types/game';
 import { HabboOffice } from './components/HabboOffice';
 import { PatchRackGame } from './components/PatchRackGame';
 import { CrtTerminalGame } from './components/CrtTerminalGame';
 import { UmbrellaSocGame } from './components/UmbrellaSocGame';
+import { WiresharkInspector } from './components/WiresharkInspector';
 import { BadgeShowcase } from './components/BadgeShowcase';
 import { AvatarCustomizerModal } from './components/AvatarCustomizerModal';
 import { RpgSkillModal } from './components/RpgSkillModal';
@@ -61,6 +62,14 @@ const INITIAL_BADGES: Badge[] = [
     unlocked: false,
   },
   {
+    id: 'packet-detective',
+    title: 'Deep Packet Detective (Layer 4-7)',
+    subtitle: 'Wireshark Protocol Investigator',
+    description: 'Hai isolato l\'esfiltrazione DNS tunneling analizzando il dump esadecimale e applicato la regola ACL correttiva.',
+    icon: '🦈',
+    unlocked: false,
+  },
+  {
     id: 'grandmaster',
     title: 'Cisco Elite NetAdmin',
     subtitle: 'Full-Stack Network & Cyber Hero',
@@ -72,6 +81,10 @@ const INITIAL_BADGES: Badge[] = [
 
 export function App() {
   const [screen, setScreen] = useState<GameScreen>('office');
+  const [currentRoom, setCurrentRoom] = useState<RoomId>(() => {
+    const saved = localStorage.getItem('cisco_room');
+    return (saved === 'datacenter_vault' ? 'datacenter_vault' : 'office');
+  });
   const [isCustomizerOpen, setIsCustomizerOpen] = useState<boolean>(false);
   const [isSkillsOpen, setIsSkillsOpen] = useState<boolean>(false);
 
@@ -97,6 +110,7 @@ export function App() {
   const [level1Done, setLevel1Done] = useState<boolean>(() => localStorage.getItem('cisco_lvl1') === 'true');
   const [level2Done, setLevel2Done] = useState<boolean>(() => localStorage.getItem('cisco_lvl2') === 'true');
   const [level3Done, setLevel3Done] = useState<boolean>(() => localStorage.getItem('cisco_lvl3') === 'true');
+  const [level4Done, setLevel4Done] = useState<boolean>(() => localStorage.getItem('cisco_lvl4') === 'true');
 
   const [badges, setBadges] = useState<Badge[]>(() => {
     const saved = localStorage.getItem('cisco_badges');
@@ -116,12 +130,17 @@ export function App() {
   }, [stats]);
 
   useEffect(() => {
-    const allDone = level1Done && level2Done && level3Done;
+    localStorage.setItem('cisco_room', currentRoom);
+  }, [currentRoom]);
+
+  useEffect(() => {
+    const allDone = level1Done && level2Done && level3Done && level4Done;
     setBadges(prev => {
       const updated = prev.map(b => {
         if (b.id === 'cable-master') return { ...b, unlocked: level1Done };
         if (b.id === 'ios-ninja') return { ...b, unlocked: level2Done };
         if (b.id === 'umbrella-shield') return { ...b, unlocked: level3Done };
+        if (b.id === 'packet-detective') return { ...b, unlocked: level4Done };
         if (b.id === 'grandmaster') return { ...b, unlocked: allDone };
         return b;
       });
@@ -132,7 +151,8 @@ export function App() {
     localStorage.setItem('cisco_lvl1', String(level1Done));
     localStorage.setItem('cisco_lvl2', String(level2Done));
     localStorage.setItem('cisco_lvl3', String(level3Done));
-  }, [level1Done, level2Done, level3Done]);
+    localStorage.setItem('cisco_lvl4', String(level4Done));
+  }, [level1Done, level2Done, level3Done, level4Done]);
 
   // XP & Level-Up Engine
   const addXp = (amount: number) => {
@@ -196,6 +216,13 @@ export function App() {
     }
   };
 
+  const handleLevel4Complete = () => {
+    if (!level4Done) {
+      setLevel4Done(true);
+      addXp(1250);
+    }
+  };
+
   const handleCoffeeBoost = () => {
     addXp(40);
   };
@@ -206,6 +233,8 @@ export function App() {
       setLevel1Done(false);
       setLevel2Done(false);
       setLevel3Done(false);
+      setLevel4Done(false);
+      setCurrentRoom('office');
       setStats(INITIAL_STATS);
       setAvatar(INITIAL_AVATAR);
       setBadges(INITIAL_BADGES);
@@ -229,9 +258,12 @@ export function App() {
               <HabboOffice
                 avatar={avatar}
                 stats={stats}
+                currentRoom={currentRoom}
+                onRoomChange={(r) => setCurrentRoom(r)}
                 level1Done={level1Done}
                 level2Done={level2Done}
                 level3Done={level3Done}
+                level4Done={level4Done}
                 onNavigate={(target) => setScreen(target)}
                 onOpenCustomizer={() => setIsCustomizerOpen(true)}
                 onOpenSkills={() => setIsSkillsOpen(true)}
@@ -285,6 +317,22 @@ export function App() {
                 onBack={() => setScreen('office')}
                 onComplete={handleLevel3Complete}
                 isCompleted={level3Done}
+              />
+            </motion.div>
+          )}
+
+          {screen === 'wireshark' && (
+            <motion.div
+              key="wireshark"
+              initial={{ opacity: 0, scale: 0.92 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.25 }}
+            >
+              <WiresharkInspector
+                onBack={() => setScreen('office')}
+                onComplete={handleLevel4Complete}
+                isCompleted={level4Done}
               />
             </motion.div>
           )}

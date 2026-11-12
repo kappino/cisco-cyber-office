@@ -680,3 +680,601 @@ export const drawChunkyMonstera = (
   ctx.ellipse(pt.x, pt.y - 42, 18, 12, 0, 0, Math.PI * 2);
   ctx.fill();
 };
+
+// ==========================================
+// ROOM 2: UNDERGROUND DATACENTER & VAULT
+// ==========================================
+
+// 11. Heavy Industrial Datacenter Vault Walls
+export const drawUndergroundDatacenterWalls = (ctx: CanvasRenderingContext2D, canvasW: number, frame: number) => {
+  const origin = gridToScreen(0, 0, canvasW);
+  const wallH = 190;
+  const wallThick = 12;
+
+  const leftEnd = gridToScreen(0, GRID_SIZE, canvasW);
+  const rightEnd = gridToScreen(GRID_SIZE, 0, canvasW);
+
+  // --- LEFT WALL (Heavy Reinforced Concrete & Cable Raceways) ---
+  ctx.beginPath();
+  ctx.moveTo(origin.x, origin.y);
+  ctx.lineTo(origin.x, origin.y - wallH);
+  ctx.lineTo(leftEnd.x, leftEnd.y - wallH);
+  ctx.lineTo(leftEnd.x, leftEnd.y);
+  ctx.closePath();
+  ctx.fillStyle = '#1e293b';
+  ctx.fill();
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Concrete vertical seam panels
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 1.5;
+  for (let s = 1; s <= 7; s++) {
+    const p1 = gridToScreen(0, s, canvasW);
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p1.x, p1.y - wallH);
+    ctx.stroke();
+
+    // Rivets along seams
+    ctx.fillStyle = '#64748b';
+    for (let rh = 25; rh < wallH - 20; rh += 40) {
+      ctx.fillRect(p1.x - 2, p1.y - rh - 2, 4, 4);
+    }
+  }
+
+  // Overhead Industrial Cable Ladder (Yellow Tray with Network Cables)
+  const trayY = 35;
+  ctx.beginPath();
+  ctx.moveTo(origin.x, origin.y - wallH + trayY);
+  ctx.lineTo(leftEnd.x, leftEnd.y - wallH + trayY);
+  ctx.strokeStyle = '#eab308';
+  ctx.lineWidth = 6;
+  ctx.stroke();
+
+  // Multi-color Fiber Optic cables inside tray
+  ctx.beginPath();
+  ctx.moveTo(origin.x, origin.y - wallH + trayY - 1);
+  ctx.lineTo(leftEnd.x, leftEnd.y - wallH + trayY - 1);
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(origin.x, origin.y - wallH + trayY + 2);
+  ctx.lineTo(leftEnd.x, leftEnd.y - wallH + trayY + 2);
+  ctx.strokeStyle = '#ef4444';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Industrial Ventilation Duct & Rotating Exhaust Fans
+  const fanPos = gridToScreen(0, 3.5, canvasW);
+  const fanY = fanPos.y - wallH + 95;
+
+  ctx.save();
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath();
+  ctx.arc(fanPos.x, fanY, 32, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#64748b';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+
+  // Rotating fan blades
+  const fanAngle = (frame * 0.12) % (Math.PI * 2);
+  ctx.save();
+  ctx.translate(fanPos.x, fanY);
+  ctx.rotate(fanAngle);
+  for (let b = 0; b < 4; b++) {
+    ctx.rotate(Math.PI / 2);
+    ctx.fillStyle = '#475569';
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(14, -8);
+    ctx.lineTo(26, 0);
+    ctx.lineTo(14, 8);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // Fan protective grille
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.4)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(fanPos.x - 30, fanY);
+  ctx.lineTo(fanPos.x + 30, fanY);
+  ctx.moveTo(fanPos.x, fanY - 30);
+  ctx.lineTo(fanPos.x, fanY + 30);
+  ctx.stroke();
+  ctx.restore();
+
+  // Left Wall Cap (Titanium / Slate Cap)
+  ctx.beginPath();
+  ctx.moveTo(origin.x, origin.y - wallH);
+  ctx.lineTo(origin.x - wallThick * 0.7, origin.y - wallH - wallThick * 0.5);
+  ctx.lineTo(leftEnd.x - wallThick * 0.7, leftEnd.y - wallH - wallThick * 0.5);
+  ctx.lineTo(leftEnd.x, leftEnd.y - wallH);
+  ctx.closePath();
+  ctx.fillStyle = '#475569';
+  ctx.fill();
+  ctx.strokeStyle = '#334155';
+  ctx.stroke();
+
+  // Baseboard with Yellow/Black Safety Hazard Stripes
+  ctx.beginPath();
+  ctx.moveTo(origin.x, origin.y);
+  ctx.lineTo(origin.x, origin.y - 12);
+  ctx.lineTo(leftEnd.x, leftEnd.y - 12);
+  ctx.lineTo(leftEnd.x, leftEnd.y);
+  ctx.closePath();
+  ctx.fillStyle = '#0f172a';
+  ctx.fill();
+
+  for (let s = 0; s < 14; s++) {
+    const tFrac = s / 14;
+    const px = origin.x + (leftEnd.x - origin.x) * tFrac;
+    const py = origin.y + (leftEnd.y - origin.y) * tFrac;
+    ctx.fillStyle = s % 2 === 0 ? '#eab308' : '#0f172a';
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(px + 10, py - 6);
+    ctx.lineTo(px + 4, py - 12);
+    ctx.lineTo(px - 6, py - 6);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // --- RIGHT WALL (Subterranean Blast Wall & Diagnostic Arrays) ---
+  ctx.beginPath();
+  ctx.moveTo(origin.x, origin.y);
+  ctx.lineTo(origin.x, origin.y - wallH);
+  ctx.lineTo(rightEnd.x, rightEnd.y - wallH);
+  ctx.lineTo(rightEnd.x, rightEnd.y);
+  ctx.closePath();
+  ctx.fillStyle = '#0f172a';
+  ctx.fill();
+  ctx.strokeStyle = '#020617';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Right Wall Cap
+  ctx.beginPath();
+  ctx.moveTo(origin.x, origin.y - wallH);
+  ctx.lineTo(origin.x + wallThick * 0.7, origin.y - wallH - wallThick * 0.5);
+  ctx.lineTo(rightEnd.x + wallThick * 0.7, rightEnd.y - wallH - wallThick * 0.5);
+  ctx.lineTo(rightEnd.x, rightEnd.y - wallH);
+  ctx.closePath();
+  ctx.fillStyle = '#334155';
+  ctx.fill();
+  ctx.strokeStyle = '#1e293b';
+  ctx.stroke();
+
+  // Right Baseboard Hazard Stripes
+  for (let s = 0; s < 14; s++) {
+    const tFrac = s / 14;
+    const px = origin.x + (rightEnd.x - origin.x) * tFrac;
+    const py = origin.y + (rightEnd.y - origin.y) * tFrac;
+    ctx.fillStyle = s % 2 === 0 ? '#eab308' : '#0f172a';
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(px - 10, py - 6);
+    ctx.lineTo(px - 4, py - 12);
+    ctx.lineTo(px + 6, py - 6);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Subterranean Telemetry Status Panel on Right Wall
+  const pRightPanel = gridToScreen(4, 0, canvasW);
+  const panelY = pRightPanel.y - wallH + 55;
+
+  ctx.save();
+  ctx.translate(pRightPanel.x - 20, panelY);
+  ctx.transform(1, -0.4, 0, 1, 0, 0);
+
+  ctx.fillStyle = '#030712';
+  ctx.fillRect(0, 0, 110, 65);
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(0, 0, 110, 65);
+
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = 'bold 8.5px monospace';
+  ctx.fillText('DATACENTER VAULT // -1F', 6, 14);
+
+  ctx.fillStyle = '#10b981';
+  ctx.font = '7.5px monospace';
+  ctx.fillText('COOLING: 19.5°C [STABLE]', 6, 26);
+  ctx.fillText('AIRFLOW: COLD AISLE OK', 6, 36);
+
+  ctx.fillStyle = '#f59e0b';
+  ctx.fillText('UPS LOAD: 42% (A+B GRID)', 6, 46);
+
+  // Blinking emergency beacon dot
+  const beaconBlink = Math.sin(frame * 0.1) > 0;
+  ctx.fillStyle = beaconBlink ? '#ef4444' : '#7f1d1d';
+  ctx.beginPath();
+  ctx.arc(98, 12, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Pulsing Emergency Beacon on top of right corner
+  const beaconPos = gridToScreen(2, 0, canvasW);
+  const by = beaconPos.y - wallH + 18;
+  const pulse = Math.abs(Math.sin(frame * 0.08));
+
+  ctx.save();
+  ctx.fillStyle = '#ef4444';
+  ctx.shadowColor = '#ef4444';
+  ctx.shadowBlur = 15 * pulse;
+  ctx.beginPath();
+  ctx.arc(beaconPos.x, by, 7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+};
+
+// 12. Raised Datacenter Floor with Perforated Cooling Grilles
+export const drawUndergroundFloor = (ctx: CanvasRenderingContext2D, canvasW: number, tgt: TilePos | null) => {
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      const pt = gridToScreen(c, r, canvasW);
+      const isAlternate = (c + r) % 2 === 0;
+
+      ctx.beginPath();
+      ctx.moveTo(pt.x, pt.y);
+      ctx.lineTo(pt.x + TILE_W / 2, pt.y + TILE_H / 2);
+      ctx.lineTo(pt.x, pt.y + TILE_H);
+      ctx.lineTo(pt.x - TILE_W / 2, pt.y + TILE_H / 2);
+      ctx.closePath();
+
+      // Cold aisle perforated tiles down the central corridor
+      const isColdAisle = (c >= 2 && c <= 4 && r >= 2 && r <= 4);
+
+      if (isColdAisle) {
+        ctx.fillStyle = isAlternate ? '#1e293b' : '#0f172a';
+        ctx.fill();
+        ctx.strokeStyle = '#0284c7';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // Sub-floor blue cooling glow
+        ctx.save();
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.25)';
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y + TILE_H / 2, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // Perforated hole pattern
+        ctx.fillStyle = '#38bdf8';
+        for (let dx = -8; dx <= 8; dx += 8) {
+          for (let dy = -4; dy <= 4; dy += 4) {
+            ctx.fillRect(pt.x + dx, pt.y + TILE_H / 2 + dy, 2, 2);
+          }
+        }
+      } else {
+        ctx.fillStyle = isAlternate ? '#1e293b' : '#151d2f';
+        ctx.fill();
+        ctx.strokeStyle = '#090d16';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      if (tgt && Math.round(tgt.x) === c && Math.round(tgt.y) === r) {
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.4)';
+        ctx.fill();
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+      }
+    }
+  }
+};
+
+// 13. Chunky Industrial Elevator (Floor 1 <-> Floor -1 Transit)
+export const drawChunkyIndustrialElevator = (
+  ctx: CanvasRenderingContext2D,
+  gx: number,
+  gy: number,
+  canvasW: number,
+  room: 'office' | 'datacenter_vault',
+  frame: number
+) => {
+  const pt = gridToScreen(gx, gy, canvasW);
+  const w = 52;
+  const h = 88;
+  const ex = pt.x - w / 2;
+  const ey = pt.y - h;
+
+  // Heavy steel shadow on floor
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(pt.x, pt.y + 6, 32, 16, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  ctx.fill();
+  ctx.restore();
+
+  // Elevator Frame (Reinforced Industrial Steel)
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(ex, ey, w, h);
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(ex, ey, w, h);
+
+  // Hazard border stripe on top header
+  ctx.fillStyle = '#eab308';
+  ctx.fillRect(ex + 4, ey + 4, w - 8, 8);
+  ctx.fillStyle = '#0f172a';
+  for (let s = ex + 4; s < ex + w - 8; s += 8) {
+    ctx.fillRect(s, ey + 4, 4, 8);
+  }
+
+  // Digital Floor Indicator Screen
+  const isVault = room === 'datacenter_vault';
+  ctx.fillStyle = '#020617';
+  ctx.fillRect(ex + 10, ey + 15, w - 20, 16);
+  ctx.strokeStyle = isVault ? '#38bdf8' : '#f59e0b';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(ex + 10, ey + 15, w - 20, 16);
+
+  ctx.fillStyle = isVault ? '#38bdf8' : '#f59e0b';
+  ctx.font = 'bold 9px monospace';
+  ctx.textAlign = 'center';
+  const arrowBlink = Math.sin(frame * 0.1) > 0 ? (isVault ? '▲' : '▼') : ' ';
+  ctx.fillText(isVault ? `-1F ${arrowBlink}` : `1F ${arrowBlink}`, ex + w / 2, ey + 27);
+  ctx.textAlign = 'start';
+
+  // Stainless Steel Sliding Doors
+  const doorW = (w - 12) / 2;
+  const doorH = h - 38;
+  const doorY = ey + 34;
+
+  // Left door
+  ctx.fillStyle = '#475569';
+  ctx.fillRect(ex + 6, doorY, doorW, doorH);
+  ctx.strokeStyle = '#334155';
+  ctx.strokeRect(ex + 6, doorY, doorW, doorH);
+
+  // Right door
+  ctx.fillStyle = '#334155';
+  ctx.fillRect(ex + 6 + doorW, doorY, doorW, doorH);
+  ctx.strokeStyle = '#1e293b';
+  ctx.strokeRect(ex + 6 + doorW, doorY, doorW, doorH);
+
+  // Center vertical door gap
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(ex + 6 + doorW, doorY);
+  ctx.lineTo(ex + 6 + doorW, doorY + doorH);
+  ctx.stroke();
+
+  // Call Button Panel on side jamb
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(ex + w - 5, ey + 45, 6, 18);
+  ctx.strokeStyle = '#475569';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(ex + w - 5, ey + 45, 6, 18);
+
+  // Illuminated Call LED
+  ctx.fillStyle = isVault ? '#10b981' : '#38bdf8';
+  ctx.beginPath();
+  ctx.arc(ex + w - 2, ey + 52, 2, 0, Math.PI * 2);
+  ctx.fill();
+};
+
+// 14. Chunky Wireshark DPI Console Workstation (Tile 2, 2 in Vault)
+export const drawChunkyWiresharkConsole = (
+  ctx: CanvasRenderingContext2D,
+  gx: number,
+  gy: number,
+  canvasW: number,
+  level4Done: boolean,
+  frame: number
+) => {
+  const pt = gridToScreen(gx, gy, canvasW);
+  const w = 58;
+  const h = 48;
+  const dx = pt.x - w / 2;
+  const dy = pt.y - h;
+
+  // Base shadow
+  ctx.beginPath();
+  ctx.ellipse(pt.x, pt.y + 4, 30, 14, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  ctx.fill();
+
+  // Console Desk (High-Tech Carbon)
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(dx, dy + 16, w, 22);
+  ctx.strokeStyle = '#0284c7';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(dx, dy + 16, w, 22);
+
+  // Dual Ultrawide Curving Monitor
+  ctx.fillStyle = '#020617';
+  ctx.fillRect(dx + 4, dy - 18, w - 8, 32);
+  ctx.strokeStyle = level4Done ? '#10b981' : '#38bdf8';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(dx + 4, dy - 18, w - 8, 32);
+
+  // Monitor Display: Wireshark Packet Streams
+  ctx.fillStyle = '#040d1a';
+  ctx.fillRect(dx + 6, dy - 16, w - 12, 28);
+
+  // Shark Fin Logo or Anomaly Beacon
+  ctx.font = 'bold 8px monospace';
+  ctx.fillStyle = '#38bdf8';
+  ctx.fillText('🦈 WIRESHARK', dx + 8, dy - 7);
+
+  // Streaming Packet Lines on Screen
+  for (let l = 0; l < 3; l++) {
+    const isThreatLine = !level4Done && l === 1;
+    ctx.fillStyle = isThreatLine ? '#ef4444' : '#10b981';
+    ctx.fillRect(dx + 8, dy - 2 + l * 4, 20 + ((frame + l * 10) % 18), 2.5);
+  }
+
+  // Workstation Status Notification
+  ctx.font = 'bold 6.5px monospace';
+  ctx.fillStyle = level4Done ? '#10b981' : '#ef4444';
+  ctx.fillText(level4Done ? 'SAFE: 0 THREATS' : 'ALERT: DNS EXFIL', dx + 8, dy + 10);
+};
+
+// 15. Cisco Firepower 4100 NGFW Wall (Tile 5, 2 in Vault)
+export const drawChunkyFirepowerWall = (
+  ctx: CanvasRenderingContext2D,
+  gx: number,
+  gy: number,
+  canvasW: number,
+  frame: number
+) => {
+  const pt = gridToScreen(gx, gy, canvasW);
+  const w = 54;
+  const h = 64;
+  const fx = pt.x - w / 2;
+  const fy = pt.y - h;
+
+  // Base shadow
+  ctx.beginPath();
+  ctx.ellipse(pt.x, pt.y + 4, 28, 12, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  ctx.fill();
+
+  // Heavy Appliance Chassis
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(fx, fy, w, h);
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(fx, fy, w, h);
+
+  // Cisco Firepower Faceplate Badge
+  ctx.fillStyle = '#0284c7';
+  ctx.fillRect(fx + 6, fy + 6, w - 12, 10);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 6.5px monospace';
+  ctx.fillText('FIREPOWER 4100', fx + 8, fy + 14);
+
+  // High-Density Fan Grilles
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath();
+  ctx.arc(fx + 16, fy + 32, 9, 0, Math.PI * 2);
+  ctx.arc(fx + 38, fy + 32, 9, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Blinking IPS / Threat Inspection LEDs
+  for (let i = 0; i < 6; i++) {
+    const isGreen = ((frame + i * 5) % 15) < 8;
+    ctx.fillStyle = isGreen ? '#10b981' : '#f59e0b';
+    ctx.fillRect(fx + 8 + i * 6.5, fy + 50, 4, 3);
+  }
+};
+
+// 16. Cisco UCS SAN Storage Vault (Tile 2, 5 in Vault)
+export const drawChunkySanVault = (
+  ctx: CanvasRenderingContext2D,
+  gx: number,
+  gy: number,
+  canvasW: number,
+  frame: number
+) => {
+  const pt = gridToScreen(gx, gy, canvasW);
+  const w = 52;
+  const h = 62;
+  const sx = pt.x - w / 2;
+  const sy = pt.y - h;
+
+  // Shadow
+  ctx.beginPath();
+  ctx.ellipse(pt.x, pt.y + 4, 26, 12, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  ctx.fill();
+
+  // SAN Enclosure Body
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(sx, sy, w, h);
+  ctx.strokeStyle = '#0284c7';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(sx, sy, w, h);
+
+  // 4 Rows of Hot-Swappable SAS/NVMe Drive Caddies
+  for (let r = 0; r < 4; r++) {
+    const rowY = sy + 6 + r * 13;
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(sx + 5, rowY, w - 10, 10);
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(sx + 5, rowY, w - 10, 10);
+
+    // Blinking Fibre Channel Activity LEDs
+    for (let d = 0; d < 4; d++) {
+      const isRead = ((frame + r * 7 + d * 3) % 20) < 10;
+      ctx.fillStyle = isRead ? '#38bdf8' : '#0369a1';
+      ctx.fillRect(sx + 8 + d * 9.5, rowY + 3.5, 4, 3);
+    }
+  }
+};
+
+// 17. SecBot Sentinel AI Drone (Tile 1, 6 in Vault)
+export const drawChunkySecBot = (
+  ctx: CanvasRenderingContext2D,
+  gx: number,
+  gy: number,
+  canvasW: number,
+  frame: number
+) => {
+  const pt = gridToScreen(gx, gy, canvasW);
+  const hoverY = Math.sin(frame * 0.08) * 5;
+  const bx = pt.x;
+  const by = pt.y - 32 + hoverY;
+
+  // Ground anti-gravity shadow/glow
+  ctx.save();
+  const shadowScale = 1 - hoverY / 20;
+  ctx.beginPath();
+  ctx.ellipse(pt.x, pt.y + 2, 16 * shadowScale, 8 * shadowScale, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(56, 189, 248, 0.35)';
+  ctx.fill();
+  ctx.restore();
+
+  // Drone Spherical Metallic Body
+  ctx.beginPath();
+  ctx.arc(bx, by, 15, 0, Math.PI * 2);
+  ctx.fillStyle = '#1e293b';
+  ctx.fill();
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Glowing Visor Scanner Eye (Cylindrical sweep)
+  const visorW = 18;
+  const eyeOffset = Math.sin(frame * 0.1) * 4;
+  ctx.fillStyle = '#020617';
+  ctx.fillRect(bx - visorW / 2, by - 4, visorW, 8);
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(bx - visorW / 2, by - 4, visorW, 8);
+
+  ctx.fillStyle = '#38bdf8';
+  ctx.shadowColor = '#38bdf8';
+  ctx.shadowBlur = 8;
+  ctx.beginPath();
+  ctx.arc(bx + eyeOffset, by, 3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Top Antenna with green telemetry beacon
+  ctx.strokeStyle = '#64748b';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(bx, by - 15);
+  ctx.lineTo(bx, by - 24);
+  ctx.stroke();
+
+  ctx.fillStyle = '#10b981';
+  ctx.beginPath();
+  ctx.arc(bx, by - 25, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+};
+

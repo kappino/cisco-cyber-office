@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { AvatarConfig, PlayerStats } from '../types/game';
+import { AvatarConfig, PlayerStats, RoomId } from '../types/game';
 import { sound } from '../utils/audio';
 import { GRID_SIZE, TilePos, Direction, Entity, screenToGrid } from '../canvas/isoMath';
 import { InteractiveSpot, getInteractiveSpots } from '../data/workstations';
@@ -11,8 +11,14 @@ import {
   drawChunkyAdminDesk,
   drawChunkySocWall,
   drawChunkyNeapolitanBar,
-  drawChunkyTrophyShowcase,
-  drawChunkyMonstera
+  drawChunkyMonstera,
+  drawUndergroundDatacenterWalls,
+  drawUndergroundFloor,
+  drawChunkyIndustrialElevator,
+  drawChunkyWiresharkConsole,
+  drawChunkyFirepowerWall,
+  drawChunkySanVault,
+  drawChunkySecBot
 } from '../canvas/roomRenderers';
 import {
   drawCharmingMarcoNpc,
@@ -24,12 +30,15 @@ export type { InteractiveSpot };
 interface Props {
   avatar: AvatarConfig;
   stats: PlayerStats;
+  currentRoom?: RoomId;
   level1Done: boolean;
   level2Done: boolean;
   level3Done: boolean;
+  level4Done?: boolean;
   activeSpot: InteractiveSpot | null;
   setActiveSpot?: (spot: InteractiveSpot | null) => void;
   onTriggerSpot: (spot: InteractiveSpot) => void;
+  onChangeRoom?: (room: RoomId) => void;
   targetSpotId?: string | null;
   onClearTargetSpot?: () => void;
 }
@@ -37,12 +46,15 @@ interface Props {
 export const IsometricOfficeCanvas: React.FC<Props> = ({
   avatar,
   stats,
+  currentRoom = 'office',
   level1Done,
   level2Done,
   level3Done,
+  level4Done = false,
   activeSpot,
   setActiveSpot,
   onTriggerSpot,
+  onChangeRoom,
   targetSpotId,
   onClearTargetSpot
 }) => {
@@ -65,7 +77,18 @@ export const IsometricOfficeCanvas: React.FC<Props> = ({
     setActiveSpotRef.current = setActiveSpot;
   }, [setActiveSpot]);
 
-  const interactiveSpots = getInteractiveSpots(level1Done, level2Done, level3Done);
+  const interactiveSpots = getInteractiveSpots(currentRoom, level1Done, level2Done, level3Done, level4Done);
+
+  // When room changes, position player near the elevator
+  useEffect(() => {
+    setPlayerPos({ x: 5.2, y: 2.2 });
+    setTargetPos(null);
+    setPlayerDir('SW');
+    currentSpotIdRef.current = null;
+    if (setActiveSpotRef.current) {
+      setActiveSpotRef.current(null);
+    }
+  }, [currentRoom]);
 
   // Sync refs
   useEffect(() => { playerPosRef.current = playerPos; }, [playerPos]);
@@ -84,7 +107,7 @@ export const IsometricOfficeCanvas: React.FC<Props> = ({
         onClearTargetSpot();
       }
     }
-  }, [targetSpotId, onClearTargetSpot, level1Done, level2Done, level3Done]);
+  }, [targetSpotId, onClearTargetSpot, interactiveSpots]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -97,7 +120,12 @@ export const IsometricOfficeCanvas: React.FC<Props> = ({
       else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { dx = 1; dy = -1; }
       else if (e.key === ' ' || e.key === 'e' || e.key === 'E' || e.key === 'Enter') {
         if (activeSpot) {
-          onTriggerSpot(activeSpot);
+          if (activeSpot.isElevator && activeSpot.targetRoom && onChangeRoom) {
+            sound.playElevator();
+            onChangeRoom(activeSpot.targetRoom);
+          } else {
+            onTriggerSpot(activeSpot);
+          }
         }
       }
 
@@ -149,7 +177,7 @@ export const IsometricOfficeCanvas: React.FC<Props> = ({
     if (!ctx) return;
 
     let reqId: number;
-    const spots = getInteractiveSpots(level1Done, level2Done, level3Done);
+    const spots = getInteractiveSpots(currentRoom, level1Done, level2Done, level3Done, level4Done);
 
     const render = () => {
       animFrameRef.current++;
@@ -196,65 +224,121 @@ export const IsometricOfficeCanvas: React.FC<Props> = ({
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // --- Retro Studio Vignette Backdrop ---
-      const bgGrad = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, 80, canvas.width / 2, canvas.height / 2, 450);
-      bgGrad.addColorStop(0, '#1e2438');
-      bgGrad.addColorStop(1, '#090d16');
+      // --- Room Atmosphere Backdrop ---
+      const bgGrad = ctx.createRadialGradient(
+        canvas.width / 2, 
+        canvas.height / 2, 
+        80, 
+        canvas.width / 2, 
+        canvas.height / 2, 
+        450
+      );
+      if (currentRoom === 'office') {
+        bgGrad.addColorStop(0, '#1e2438');
+        bgGrad.addColorStop(1, '#090d16');
+      } else {
+        bgGrad.addColorStop(0, '#101726');
+        bgGrad.addColorStop(1, '#030712');
+      }
       ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // --- 1. COZY LOFT BRICK WALLS & VIBRANT VESUVIO WINDOW ---
-      drawWarmHabboWalls(ctx, canvas.width, frame);
+      // --- 1. ROOM WALLS & FLOORS ---
+      if (currentRoom === 'office') {
+        drawWarmHabboWalls(ctx, canvas.width, frame);
+        drawWarmParquetFloor(ctx, canvas.width, tgt);
+        drawSunlightBeams(ctx, canvas.width);
+      } else {
+        drawUndergroundDatacenterWalls(ctx, canvas.width, frame);
+        drawUndergroundFloor(ctx, canvas.width, tgt);
+      }
 
-      // --- 2. WARM GOLDEN PARQUET FLOOR TILES WITH CARPET ---
-      drawWarmParquetFloor(ctx, canvas.width, tgt);
-
-      // --- 3. SUNLIGHT BEAMS FROM VESUVIO WINDOW ---
-      drawSunlightBeams(ctx, canvas.width);
-
-      // --- 4. DEPTH-SORTED ISOMETRIC ENTITIES ---
+      // --- 2. DEPTH-SORTED ISOMETRIC ENTITIES ---
       const entities: Entity[] = [
         {
           id: 'player',
           depth: p.x + p.y,
-          draw: (context) => drawCharmingHabboAvatar(context, p, canvas.width, playerDirRef.current, isWalkingRef.current, frame, avatar, stats.level)
-        },
-        {
-          id: 'marco',
-          depth: 2 + 5,
-          draw: (context) => drawCharmingMarcoNpc(context, 2, 5, canvas.width, frame)
-        },
-        {
-          id: 'rack',
-          depth: 2 + 2,
-          draw: (context) => drawChunkyServerRack(context, 2, 2, canvas.width, level1Done, frame)
-        },
-        {
-          id: 'terminal',
-          depth: 5 + 2,
-          draw: (context) => drawChunkyAdminDesk(context, 5, 2, canvas.width, level2Done)
-        },
-        {
-          id: 'umbrella',
-          depth: 6 + 4,
-          draw: (context) => drawChunkySocWall(context, 6, 4, canvas.width, level3Done, frame)
-        },
-        {
-          id: 'coffee',
-          depth: 1 + 6,
-          draw: (context) => drawChunkyNeapolitanBar(context, 1, 6, canvas.width)
-        },
-        {
-          id: 'trophy',
-          depth: 6 + 1,
-          draw: (context) => drawChunkyTrophyShowcase(context, 6, 1, canvas.width)
-        },
-        {
-          id: 'plant',
-          depth: 7 + 7,
-          draw: (context) => drawChunkyMonstera(context, 7, 7, canvas.width)
+          draw: (context) => drawCharmingHabboAvatar(
+            context, 
+            p, 
+            canvas.width, 
+            playerDirRef.current, 
+            isWalkingRef.current, 
+            frame, 
+            avatar, 
+            stats.level
+          )
         }
       ];
+
+      if (currentRoom === 'office') {
+        entities.push(
+          {
+            id: 'marco',
+            depth: 2 + 5,
+            draw: (context) => drawCharmingMarcoNpc(context, 2, 5, canvas.width, frame)
+          },
+          {
+            id: 'rack',
+            depth: 2 + 2,
+            draw: (context) => drawChunkyServerRack(context, 2, 2, canvas.width, level1Done, frame)
+          },
+          {
+            id: 'terminal',
+            depth: 5 + 2,
+            draw: (context) => drawChunkyAdminDesk(context, 5, 2, canvas.width, level2Done)
+          },
+          {
+            id: 'umbrella',
+            depth: 6 + 4,
+            draw: (context) => drawChunkySocWall(context, 6, 4, canvas.width, level3Done, frame)
+          },
+          {
+            id: 'coffee',
+            depth: 1 + 6,
+            draw: (context) => drawChunkyNeapolitanBar(context, 1, 6, canvas.width)
+          },
+          {
+            id: 'elevator_down',
+            depth: 6 + 1,
+            draw: (context) => drawChunkyIndustrialElevator(context, 6, 1, canvas.width, 'office', frame)
+          },
+          {
+            id: 'plant',
+            depth: 7 + 7,
+            draw: (context) => drawChunkyMonstera(context, 7, 7, canvas.width)
+          }
+        );
+      } else {
+        // Underground Datacenter Vault entities
+        entities.push(
+          {
+            id: 'wireshark',
+            depth: 2 + 2,
+            draw: (context) => drawChunkyWiresharkConsole(context, 2, 2, canvas.width, level4Done, frame)
+          },
+          {
+            id: 'firepower',
+            depth: 5 + 2,
+            draw: (context) => drawChunkyFirepowerWall(context, 5, 2, canvas.width, frame)
+          },
+          {
+            id: 'san_storage',
+            depth: 2 + 5,
+            draw: (context) => drawChunkySanVault(context, 2, 5, canvas.width, frame)
+          },
+          {
+            id: 'elevator_up',
+            depth: 6 + 1,
+            draw: (context) => drawChunkyIndustrialElevator(context, 6, 1, canvas.width, 'datacenter_vault', frame)
+          },
+          {
+            id: 'secbot',
+            depth: 1 + 6,
+            draw: (context) => drawChunkySecBot(context, 1, 6, canvas.width, frame)
+          }
+        );
+      }
 
       entities.sort((a, b) => a.depth - b.depth);
       entities.forEach(ent => ent.draw(ctx, frame));
@@ -264,7 +348,7 @@ export const IsometricOfficeCanvas: React.FC<Props> = ({
 
     reqId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(reqId);
-  }, [avatar, stats, level1Done, level2Done, level3Done]);
+  }, [avatar, stats, currentRoom, level1Done, level2Done, level3Done, level4Done]);
 
   return (
     <div className="relative w-full flex flex-col items-center">
