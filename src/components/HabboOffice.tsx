@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { sound } from '../utils/audio';
 import { GameScreen, AvatarConfig, PlayerStats, RoomId } from '../types/game';
 import { IsometricOfficeCanvas, InteractiveSpot } from './IsometricOfficeCanvas';
@@ -55,9 +55,17 @@ export const HabboOffice: React.FC<Props> = ({
   onReset,
   onCoffeeBoost
 }) => {
-  const [muted, setMuted] = useState<boolean>(sound.isMuted);
+  const [muted, setMuted] = useState<boolean>(() => sound.isMuted);
   const [activeSpot, setActiveSpot] = useState<InteractiveSpot | null>(null);
   const [targetSpotId, setTargetSpotId] = useState<string | null>(null);
+  const [coffeeBoostTrigger, setCoffeeBoostTrigger] = useState<number>(0);
+
+  useEffect(() => {
+    const unsubscribe = sound.subscribeMute((isMuted) => {
+      setMuted(isMuted);
+    });
+    return unsubscribe;
+  }, []);
 
   const completedCount = [level1Done, level2Done, level3Done, level4Done].filter(Boolean).length;
   const progressPct = Math.round((completedCount / 4) * 100);
@@ -90,7 +98,10 @@ export const HabboOffice: React.FC<Props> = ({
   };
 
   const handleCoffeeClick = () => {
+    sound.playCoffee();
     onCoffeeBoost();
+    setCoffeeBoostTrigger(k => k + 1);
+    setActiveSpot(null);
     setNpcDialogue("Pausa Napoletana: Ti sei gustato una tazza di espresso bollente e una fetta di pizza margherita! +40 XP guadagnati e velocità aumentata!");
   };
 
@@ -107,21 +118,23 @@ export const HabboOffice: React.FC<Props> = ({
   };
 
   const handleTriggerSpot = (spot: InteractiveSpot) => {
-    sound.playClick();
-    if (spot.screen) {
-      onNavigate(spot.screen);
-    } else if (spot.isElevator) {
+    if (spot.isElevator) {
       handleElevatorClick(spot);
-    } else if (spot.isNpc) {
-      handleNpcClick();
     } else if (spot.isCoffee) {
       handleCoffeeClick();
-    } else if (spot.isBot) {
-      handleSecBotClick();
-    } else if (spot.id === 'firepower') {
-      setNpcDialogue("Cisco Firepower 4100 NGFW: Throughput 35 Gbps operativo. Regole Snort 3 attive. Motore euristico a protezione delle subnet critiche.");
-    } else if (spot.id === 'san_storage') {
-      setNpcDialogue("Array Cisco UCS SAN: 24 dischi NVMe in RAID 60. Volumi di backup NetCorp integri e crittografati con AES-256.");
+    } else {
+      sound.playClick();
+      if (spot.screen) {
+        onNavigate(spot.screen);
+      } else if (spot.isNpc) {
+        handleNpcClick();
+      } else if (spot.isBot) {
+        handleSecBotClick();
+      } else if (spot.id === 'firepower') {
+        setNpcDialogue("Cisco Firepower 4100 NGFW: Throughput 35 Gbps operativo. Regole Snort 3 attive. Motore euristico a protezione delle subnet critiche.");
+      } else if (spot.id === 'san_storage') {
+        setNpcDialogue("Array Cisco UCS SAN: 24 dischi NVMe in RAID 60. Volumi di backup NetCorp integri e crittografati con AES-256.");
+      }
     }
   };
 
@@ -254,6 +267,7 @@ export const HabboOffice: React.FC<Props> = ({
             onChangeRoom={onRoomChange}
             targetSpotId={targetSpotId}
             onClearTargetSpot={() => setTargetSpotId(null)}
+            coffeeBoostTrigger={coffeeBoostTrigger}
           />
         </div>
       </main>
@@ -503,7 +517,11 @@ export const HabboOffice: React.FC<Props> = ({
               </div>
             </div>
             <button
-              onClick={() => { sound.playClick(); setNpcDialogue(null); }}
+              onClick={() => {
+                sound.playClick();
+                sound.startBgm();
+                setNpcDialogue(null);
+              }}
               className="w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-cisco-blue to-cyan-500 hover:from-cyan-400 hover:to-cisco-blue text-slate-950 font-black text-xs rounded-lg shadow-lg flex items-center justify-center gap-1.5 transition active:scale-95 shrink-0"
             >
               <span>HO CAPITO!</span>

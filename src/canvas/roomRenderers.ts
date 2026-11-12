@@ -1,4 +1,124 @@
-import { GRID_SIZE, TILE_W, TILE_H, TilePos, gridToScreen } from './isoMath';
+import { GRID_SIZE, TILE_W, TILE_H, ORIGIN_Y, TilePos, gridToScreen } from './isoMath';
+
+// --- Procedural Rendering Constants (Zero Heap Allocation) ---
+const COLOR_STEAM = '#fef3c7';
+const COLOR_PARQUET_LIGHT = '#b45309';
+const COLOR_PARQUET_DARK = '#92400e';
+const COLOR_PARQUET_STROKE = '#78350f';
+const COLOR_RUG_LIGHT = '#0284c7';
+const COLOR_RUG_DARK = '#0369a1';
+const COLOR_RUG_STROKE = '#075985';
+const COLOR_SUNSET_SHEEN = '#fb923c';
+const COLOR_SUNSET_GLINT = '#fef08a';
+const COLOR_TARGET_FILL = 'rgba(254, 240, 138, 0.5)';
+const COLOR_TARGET_STROKE = '#f59e0b';
+
+const COLOR_VAULT_SLATE_1 = '#1e293b';
+const COLOR_VAULT_SLATE_2 = '#151d2f';
+const COLOR_VAULT_AISLE_1 = '#1e293b';
+const COLOR_VAULT_AISLE_2 = '#0f172a';
+const COLOR_VAULT_STROKE_DEF = '#090d16';
+const COLOR_VAULT_STROKE_AISLE = '#0284c7';
+const COLOR_VAULT_STROKE_PULSE = '#38bdf8';
+const COLOR_CYAN_GLOW = '#38bdf8';
+const COLOR_COOL_MIST = '#bae6fd';
+const COLOR_TARGET_CYAN = 'rgba(56, 189, 248, 0.4)';
+const PI2 = Math.PI * 2;
+
+// Static Cisco IOS CLI command feed for Admin Desk Left Monitor
+const CISCO_IOS_CLI_LINES = [
+  'Switch#',
+  'sh ip ro',
+  '10.1.0.0',
+  'conf t',
+  'vlan 20',
+  'name SEC',
+  'int g0/1',
+  'sw mode acc',
+  'no shut',
+  'wr mem',
+  '[OK] Commit'
+];
+
+// Static Threat Feeds for SOC Threat Wall Right Section
+const SOC_THREAT_FEEDS = [
+  'DNS:bad-c2.sink',
+  'DST:185.220.101',
+  'BLOCKED:C2_BEACON',
+  'FLOW: 2.4 Gbps',
+  'MITRE:T1071.004',
+  'SRC:192.168.1.10',
+  'ACL:DENY TCP 443',
+  'STATUS:MITIGATED'
+];
+
+// Precomputed blip coordinates & angles for SOC Threat Wall Radar
+const SOC_BLIP_DX = [-5, 7, -3];
+const SOC_BLIP_DY = [-6, 3, 7];
+const SOC_BLIP_ANGLES = [
+  Math.atan2(-6, -5), // -2.265 rad
+  Math.atan2(3, 7),   //  0.405 rad
+  Math.atan2(7, -3)   //  1.976 rad
+];
+const SOC_BLIP_COLORS_ALERT = [
+  'rgba(239, 68, 68, 0.2)',
+  'rgba(239, 68, 68, 0.5)',
+  'rgba(239, 68, 68, 0.8)',
+  'rgba(239, 68, 68, 1.0)'
+];
+const SOC_BLIP_COLORS_SAFE = [
+  'rgba(52, 211, 153, 0.2)',
+  'rgba(52, 211, 153, 0.5)',
+  'rgba(52, 211, 153, 0.8)',
+  'rgba(52, 211, 153, 1.0)'
+];
+
+// Static Hex Dump Lines for Wireshark DPI Console
+const WIRESHARK_HEX_LINES = [
+  '00: 45 00 00 3C',
+  '08: 1C 9F 40 00',
+  '10: 40 06 B1 E6',
+  '18: C0 A8 01 69',
+  '20: B9 DC 65 05',
+  '28: 01 BB C0 31',
+  '30: 53 45 43 55',
+  '38: 7F FF 08 00',
+  '40: 62 61 64 2D',
+  '48: 63 32 2E 73'
+];
+
+/**
+ * Procedural rising steam plume with zero heap allocations per frame.
+ * @param ctx 2D Canvas context
+ * @param sx Source X coordinate (origin of steam)
+ * @param sy Source Y coordinate (top of cup/vent)
+ * @param frame Monotonic animation frame counter
+ * @param count Number of staggered steam particles (default: 6)
+ */
+export const drawSteamPlume = (
+  ctx: CanvasRenderingContext2D,
+  sx: number,
+  sy: number,
+  frame: number,
+  count = 6
+) => {
+  ctx.save();
+  ctx.fillStyle = COLOR_STEAM;
+  for (let i = 0; i < count; i++) {
+    // Phase-shifted particle lifecycle [0, 1)
+    const t = ((frame * 0.4 + i * (60 / count)) % 60) / 60;
+    const y = sy - t * 24;
+    const x = sx + Math.sin(frame * 0.08 + i * 1.5) * (2 + t * 4);
+    const r = 1.2 + t * 3.2;
+    // Dissipates to 0 as it ascends
+    const alpha = (1 - t) * 0.42;
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, PI2);
+    ctx.fill();
+  }
+  ctx.restore();
+};
 
 // 1. Warm Exposed Terracotta Brick Walls with Arched Panoramic Naples Window
 export const drawWarmHabboWalls = (ctx: CanvasRenderingContext2D, canvasW: number, frame: number) => {
@@ -241,40 +361,81 @@ export const drawWarmHabboWalls = (ctx: CanvasRenderingContext2D, canvasW: numbe
   ctx.restore();
 };
 
-// 2. Warm Parquet Floor with Cisco Blue Carpet in Center
-export const drawWarmParquetFloor = (ctx: CanvasRenderingContext2D, canvasW: number, tgt: TilePos | null) => {
+// 2. Warm Parquet Floor with Cisco Blue Carpet in Center & Sunset Specular Sheen
+export const drawWarmParquetFloor = (
+  ctx: CanvasRenderingContext2D,
+  canvasW: number,
+  tgt: TilePos | null,
+  frame: number = 0
+) => {
+  const originX = canvasW * 0.5;
+  const halfW = TILE_W * 0.5; // 48
+  const halfH = TILE_H * 0.5; // 24
+
   for (let r = 0; r < GRID_SIZE; r++) {
     for (let c = 0; c < GRID_SIZE; c++) {
-      const pt = gridToScreen(c, r, canvasW);
+      // Inlined projection: zero heap allocation
+      const ptX = (c - r) * halfW + originX;
+      const ptY = (c + r) * halfH + ORIGIN_Y;
       const isAlternate = (c + r) % 2 === 0;
 
       ctx.beginPath();
-      ctx.moveTo(pt.x, pt.y);
-      ctx.lineTo(pt.x + TILE_W / 2, pt.y + TILE_H / 2);
-      ctx.lineTo(pt.x, pt.y + TILE_H);
-      ctx.lineTo(pt.x - TILE_W / 2, pt.y + TILE_H / 2);
+      ctx.moveTo(ptX, ptY);
+      ctx.lineTo(ptX + halfW, ptY + halfH);
+      ctx.lineTo(ptX, ptY + TILE_H);
+      ctx.lineTo(ptX - halfW, ptY + halfH);
       ctx.closePath();
 
       const isRug = c >= 3 && c <= 5 && r >= 3 && r <= 5;
 
       if (isRug) {
-        ctx.fillStyle = isAlternate ? '#0369a1' : '#0284c7';
+        ctx.fillStyle = isAlternate ? COLOR_RUG_DARK : COLOR_RUG_LIGHT;
         ctx.fill();
-        ctx.strokeStyle = '#075985';
+        ctx.strokeStyle = COLOR_RUG_STROKE;
         ctx.lineWidth = 1;
         ctx.stroke();
       } else {
-        ctx.fillStyle = isAlternate ? '#b45309' : '#92400e';
+        ctx.fillStyle = isAlternate ? COLOR_PARQUET_LIGHT : COLOR_PARQUET_DARK;
         ctx.fill();
-        ctx.strokeStyle = '#78350f';
+        ctx.strokeStyle = COLOR_PARQUET_STROKE;
         ctx.lineWidth = 1;
         ctx.stroke();
       }
 
+      // --- SUNSET SPECULAR SHEEN & REFLECTIONS FROM PANORAMIC NAPLES WINDOW ---
+      // Window is on left wall (gx = 0, gy: 1.0..6.2). Golden light casts across corridor c: 0..5, r: 1..6.
+      if (c <= 5 && r >= 1 && r <= 6) {
+        const beamDist = Math.abs((r - 3.2) - c * 0.3);
+        if (beamDist < 3.2) {
+          const falloff = (1 - c / 6.5) * (1 - beamDist / 3.2);
+          const shimmer = Math.sin(frame * 0.04 + c * 0.7 + r * 0.5) * 0.04;
+          const sheenAlpha = Math.max(0, Math.min(0.26, falloff * 0.22 + shimmer));
+
+          if (sheenAlpha > 0.015) {
+            // Warm golden specular sheen fill
+            ctx.fillStyle = COLOR_SUNSET_SHEEN;
+            ctx.globalAlpha = sheenAlpha;
+            ctx.fill();
+
+            // Specular varnish glint on tile top-left facet facing panoramic window
+            ctx.strokeStyle = COLOR_SUNSET_GLINT;
+            ctx.lineWidth = 1.2;
+            ctx.globalAlpha = sheenAlpha * 1.6;
+            ctx.beginPath();
+            ctx.moveTo(ptX - halfW, ptY + halfH);
+            ctx.lineTo(ptX, ptY);
+            ctx.stroke();
+
+            // Reset alpha
+            ctx.globalAlpha = 1.0;
+          }
+        }
+      }
+
       if (tgt && Math.round(tgt.x) === c && Math.round(tgt.y) === r) {
-        ctx.fillStyle = 'rgba(254, 240, 138, 0.5)';
+        ctx.fillStyle = COLOR_TARGET_FILL;
         ctx.fill();
-        ctx.strokeStyle = '#f59e0b';
+        ctx.strokeStyle = COLOR_TARGET_STROKE;
         ctx.lineWidth = 2.5;
         ctx.stroke();
       }
@@ -393,13 +554,14 @@ export const drawChunkyServerRack = (
   ctx.fillText(done ? '✓' : '!', pt.x, badgeY + 4);
 };
 
-// 5. Chunky Admin Workstation Desk
+// 5. Chunky Admin Workstation Desk (Dual Animated Monitors + Blinking Cursor + Packet Tracer + Steaming Mug)
 export const drawChunkyAdminDesk = (
   ctx: CanvasRenderingContext2D,
   gx: number,
   gy: number,
   canvasW: number,
-  done: boolean
+  done: boolean,
+  frame: number = 0
 ) => {
   const pt = gridToScreen(gx, gy, canvasW);
   const dw = 76;
@@ -407,46 +569,172 @@ export const drawChunkyAdminDesk = (
   const dx = pt.x - dw / 2;
   const dy = pt.y - 20;
 
+  // Desk shadow on floor
   ctx.beginPath();
   ctx.ellipse(pt.x, pt.y + 16, 46, 16, 0, 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(0,0,0,0.55)';
   ctx.fill();
 
+  // Wooden desk surface
   ctx.fillStyle = '#78350f';
   ctx.fillRect(dx, dy, dw, dh);
   ctx.strokeStyle = '#451a03';
   ctx.lineWidth = 2;
   ctx.strokeRect(dx, dy, dw, dh);
 
+  // Desk front edge & metallic legs
   ctx.fillStyle = '#451a03';
   ctx.fillRect(dx, dy + dh, dw, 7);
-
   ctx.fillStyle = '#1e293b';
   ctx.fillRect(dx + 2, dy + dh + 7, 4, 14);
   ctx.fillRect(dx + dw - 6, dy + dh + 7, 4, 14);
 
-  // Left Monitor: Cisco IOS CLI
-  ctx.fillStyle = '#0f172a';
-  ctx.fillRect(dx + 6, dy - 32, 30, 26);
-  ctx.fillStyle = '#052e16';
-  ctx.fillRect(dx + 8, dy - 30, 26, 22);
-  ctx.fillStyle = done ? '#34d399' : '#10b981';
-  ctx.font = 'bold 9px monospace';
-  ctx.textAlign = 'left';
-  ctx.fillText('Switch#', dx + 10, dy - 18);
-  ctx.fillText('>_ cli', dx + 10, dy - 9);
+  // -------------------------------------------------------------
+  // LEFT MONITOR: Cisco IOS CLI Terminal (Scrolling Text + Cursor)
+  // -------------------------------------------------------------
+  const lmX = dx + 6;
+  const lmY = dy - 32;
+  const lmW = 30;
+  const lmH = 26;
 
-  // Right Monitor: Packet Tracer
+  // Bezel & Stand
   ctx.fillStyle = '#0f172a';
-  ctx.fillRect(dx + 40, dy - 32, 30, 26);
-  ctx.fillStyle = '#082f49';
-  ctx.fillRect(dx + 42, dy - 30, 26, 22);
-  ctx.fillStyle = '#38bdf8';
+  ctx.fillRect(lmX, lmY, lmW, lmH);
+  ctx.fillRect(lmX + 12, lmY + lmH, 6, 6); // stand neck
+  ctx.fillRect(lmX + 8, lmY + lmH + 4, 14, 2); // stand base
+
+  // CRT Phosphor Display
+  const scrX = lmX + 2;
+  const scrY = lmY + 2;
+  const scrW = lmW - 4; // 26px
+  const scrH = lmH - 4; // 22px
+  ctx.fillStyle = '#021a0d';
+  ctx.fillRect(scrX, scrY, scrW, scrH);
+
+  // Clip to inner monitor screen
+  ctx.save();
   ctx.beginPath();
-  ctx.arc(dx + 50, dy - 20, 3.5, 0, Math.PI * 2);
-  ctx.arc(dx + 60, dy - 16, 3.5, 0, Math.PI * 2);
-  ctx.arc(dx + 54, dy - 26, 2.5, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.rect(scrX, scrY, scrW, scrH);
+  ctx.clip();
+
+  // Scrolling CLI lines
+  const cliStep = Math.floor(frame / 36);
+  const l1Idx = cliStep % CISCO_IOS_CLI_LINES.length;
+  const l2Idx = (cliStep + 1) % CISCO_IOS_CLI_LINES.length;
+  const l3Idx = (cliStep + 2) % CISCO_IOS_CLI_LINES.length;
+
+  ctx.font = '5px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = done ? '#34d399' : '#10b981';
+  ctx.fillText(CISCO_IOS_CLI_LINES[l1Idx], scrX + 2, scrY + 6);
+  ctx.fillText(CISCO_IOS_CLI_LINES[l2Idx], scrX + 2, scrY + 12);
+  ctx.fillText(CISCO_IOS_CLI_LINES[l3Idx], scrX + 2, scrY + 18);
+
+  // Blinking Block Cursor
+  const cursorBlink = (frame % 30) < 15;
+  if (cursorBlink) {
+    ctx.fillStyle = done ? '#34d399' : '#10b981';
+    ctx.fillRect(scrX + 22, scrY + 14, 2.5, 4);
+  }
+
+  // CRT Scanlines
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+  for (let sy = scrY; sy < scrY + scrH; sy += 2) {
+    ctx.fillRect(scrX, sy, scrW, 1);
+  }
+  ctx.restore();
+
+  // -------------------------------------------------------------
+  // RIGHT MONITOR: Packet Tracer Live Topology & Moving Packets
+  // -------------------------------------------------------------
+  const rmX = dx + 40;
+  const rmY = dy - 32;
+  const rmW = 30;
+  const rmH = 26;
+
+  // Bezel & Stand
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(rmX, rmY, rmW, rmH);
+  ctx.fillRect(rmX + 12, rmY + rmH, 6, 6);
+  ctx.fillRect(rmX + 8, rmY + rmH + 4, 14, 2);
+
+  // Screen
+  const rScrX = rmX + 2;
+  const rScrY = rmY + 2;
+  const rScrW = rmW - 4;
+  const rScrH = rmH - 4;
+  ctx.fillStyle = '#041628';
+  ctx.fillRect(rScrX, rScrY, rScrW, rScrH);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(rScrX, rScrY, rScrW, rScrH);
+  ctx.clip();
+
+  // Workspace Grid
+  ctx.strokeStyle = 'rgba(14, 165, 233, 0.15)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(rScrX + 8, rScrY); ctx.lineTo(rScrX + 8, rScrY + rScrH);
+  ctx.moveTo(rScrX + 17, rScrY); ctx.lineTo(rScrX + 17, rScrY + rScrH);
+  ctx.moveTo(rScrX, rScrY + 7); ctx.lineTo(rScrX + rScrW, rScrY + 7);
+  ctx.moveTo(rScrX, rScrY + 14); ctx.lineTo(rScrX + rScrW, rScrY + 14);
+  ctx.stroke();
+
+  // Topology Nodes (Relative to rScrX, rScrY)
+  // n0: Router (13, 5), n1: Sw1 (6, 16), n2: Sw2 (20, 16), n3: Server (21, 6)
+  const n0x = rScrX + 13, n0y = rScrY + 5;
+  const n1x = rScrX + 6,  n1y = rScrY + 16;
+  const n2x = rScrX + 20, n2y = rScrY + 16;
+  const n3x = rScrX + 21, n3y = rScrY + 6;
+
+  // Network Links
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(n0x, n0y); ctx.lineTo(n1x, n1y); // Router -> Sw1
+  ctx.moveTo(n0x, n0y); ctx.lineTo(n2x, n2y); // Router -> Sw2
+  ctx.moveTo(n1x, n1y); ctx.lineTo(n2x, n2y); // Sw1 <-> Sw2 Trunk
+  ctx.moveTo(n0x, n0y); ctx.lineTo(n3x, n3y); // Router -> Server
+  ctx.stroke();
+
+  // Live Pulsating Packets (Pure parametric linear interpolation)
+  const t1 = (frame * 0.04) % 1.0;
+  const t2 = (frame * 0.04 + 0.5) % 1.0;
+  const t3 = (frame * 0.05 + 0.25) % 1.0;
+
+  ctx.fillStyle = done ? '#34d399' : '#fef08a';
+  // Packet 1: Router -> Sw1
+  ctx.fillRect(n0x + (n1x - n0x) * t1 - 1, n0y + (n1y - n0y) * t1 - 1, 2, 2);
+  // Packet 2: Router -> Sw2
+  ctx.fillRect(n0x + (n2x - n0x) * t2 - 1, n0y + (n2y - n0y) * t2 - 1, 2, 2);
+  // Packet 3: Sw1 -> Sw2 Trunk
+  ctx.fillRect(n1x + (n2x - n1x) * t3 - 1, n1y - 1, 2, 2);
+
+  // Router Core Node with Halo Pulse
+  const haloR = 2.5 + Math.sin(frame * 0.15) * 1.2;
+  ctx.strokeStyle = done ? 'rgba(52, 211, 153, 0.6)' : 'rgba(56, 189, 248, 0.6)';
+  ctx.beginPath();
+  ctx.arc(n0x, n0y, haloR, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Device Icons
+  ctx.fillStyle = '#38bdf8'; // Router
+  ctx.beginPath(); ctx.arc(n0x, n0y, 2.5, 0, Math.PI * 2); ctx.fill();
+
+  ctx.fillStyle = '#10b981'; // Switches
+  ctx.fillRect(n1x - 2, n1y - 1.5, 4, 3);
+  ctx.fillRect(n2x - 2, n2y - 1.5, 4, 3);
+
+  ctx.fillStyle = '#a855f7'; // Server
+  ctx.fillRect(n3x - 1.5, n3y - 2, 3, 4);
+
+  // Scanlines on Right Screen
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+  for (let sy = rScrY; sy < rScrY + rScrH; sy += 2) {
+    ctx.fillRect(rScrX, sy, rScrW, 1);
+  }
+  ctx.restore();
 
   // Keyboard & Mouse
   ctx.fillStyle = '#334155';
@@ -454,11 +742,17 @@ export const drawChunkyAdminDesk = (
   ctx.fillStyle = '#64748b';
   ctx.fillRect(dx + 56, dy + 15, 6, 8);
 
-  // Steaming Espresso Ceramic Cup
+  // Steaming Espresso Ceramic Cup with Handle & Crema
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(dx + 8, dy + 12, 8, 10);
-  ctx.fillStyle = 'rgba(255,255,255,0.6)';
-  ctx.fillRect(dx + 11, dy + 6, 2, 4);
+  ctx.fillStyle = '#3e1c00'; // rich espresso crema
+  ctx.fillRect(dx + 9, dy + 12, 6, 2);
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(dx + 15, dy + 14, 2, 5);
+
+  // Procedural rising steam plume from cup
+  drawSteamPlume(ctx, dx + 12, dy + 10, frame, 5);
 
   // Ergonomic Chair
   ctx.fillStyle = '#1e293b';
@@ -468,6 +762,7 @@ export const drawChunkyAdminDesk = (
   ctx.strokeStyle = '#475569';
   ctx.stroke();
 
+  // Quest Status Badge
   const badgeY = dy - 44;
   ctx.beginPath();
   ctx.arc(pt.x, badgeY, 13, 0, Math.PI * 2);
@@ -483,7 +778,7 @@ export const drawChunkyAdminDesk = (
   ctx.fillText(done ? '✓' : '!', pt.x, badgeY + 4);
 };
 
-// 6. Chunky SOC Threat Wall (Cisco Umbrella)
+// 6. Chunky SOC Threat Wall (Radar Sweep + Threat Blips + Live Neon Bar Graph + Threat Feed)
 export const drawChunkySocWall = (
   ctx: CanvasRenderingContext2D,
   gx: number,
@@ -498,6 +793,7 @@ export const drawChunkySocWall = (
   const sx = pt.x - sw / 2;
   const sy = pt.y - sh - 6;
 
+  // Base shadow & stand
   ctx.beginPath();
   ctx.ellipse(pt.x, pt.y + 14, 36, 12, 0, 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(0,0,0,0.55)';
@@ -508,35 +804,129 @@ export const drawChunkySocWall = (
   ctx.fillStyle = '#475569';
   ctx.fillRect(pt.x - 4, pt.y - 12, 8, 16);
 
+  // Heavy Display Chassis
   ctx.fillStyle = '#020617';
   ctx.fillRect(sx, sy, sw, sh);
-  ctx.strokeStyle = done ? '#38bdf8' : '#ef4444';
+
+  // Bezel Border with Threat Alert Pulse
+  const alertBorder = !done && ((frame % 20) < 10);
+  ctx.strokeStyle = done ? '#38bdf8' : (alertBorder ? '#ef4444' : '#991b1b');
   ctx.lineWidth = 2.5;
   ctx.strokeRect(sx, sy, sw, sh);
 
-  ctx.fillStyle = '#081a36';
-  ctx.fillRect(sx + 3, sy + 3, sw - 6, sh - 6);
+  // Inner Screen
+  const scrX = sx + 3;
+  const scrY = sy + 3;
+  const scrW = sw - 6; // 72px
+  const scrH = sh - 6; // 46px
+  ctx.fillStyle = '#051024';
+  ctx.fillRect(scrX, scrY, scrW, scrH);
 
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(scrX, scrY, scrW, scrH);
+  ctx.clip();
+
+  // Top Header: Title & Blinking Status Dot
+  ctx.font = 'bold 5.5px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = done ? '#38bdf8' : '#f87171';
+  ctx.fillText('CISCO SOC THREAT', scrX + 2, scrY + 7);
+
+  const socLedBlink = (frame % 24) < 12;
+  ctx.fillStyle = done ? '#10b981' : (socLedBlink ? '#ef4444' : '#7f1d1d');
+  ctx.beginPath();
+  ctx.arc(scrX + scrW - 4, scrY + 5, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // -------------------------------------------------------------
+  // LEFT: Rotating Radar Scope with Decaying Threat Blips
+  // -------------------------------------------------------------
+  const rcx = scrX + 16;
+  const rcy = scrY + 23;
+  const radR = 12;
+
+  // Radar Range Rings & Crosshairs
+  ctx.strokeStyle = done ? 'rgba(56, 189, 248, 0.35)' : 'rgba(239, 68, 68, 0.35)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(rcx, rcy, radR, 0, Math.PI * 2);
+  ctx.arc(rcx, rcy, 6, 0, Math.PI * 2);
+  ctx.moveTo(rcx - radR, rcy); ctx.lineTo(rcx + radR, rcy);
+  ctx.moveTo(rcx, rcy - radR); ctx.lineTo(rcx, rcy + radR);
+  ctx.stroke();
+
+  // Rotating Radar Sweep Beam
   const rAngle = (frame * 0.05) % (Math.PI * 2);
-  const cx = sx + sw / 2;
-  const cy = sy + sh / 2 - 2;
-
-  ctx.strokeStyle = done ? 'rgba(56, 189, 248, 0.4)' : 'rgba(239, 68, 68, 0.4)';
-  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = done ? '#38bdf8' : '#ef4444';
+  ctx.lineWidth = 1.2;
   ctx.beginPath();
-  ctx.arc(cx, cy, 15, 0, Math.PI * 2);
+  ctx.moveTo(rcx, rcy);
+  ctx.lineTo(rcx + Math.cos(rAngle) * radR, rcy + Math.sin(rAngle) * radR);
   ctx.stroke();
 
+  // Sweep Phosphor Decay Wedge
+  ctx.fillStyle = done ? 'rgba(56, 189, 248, 0.12)' : 'rgba(239, 68, 68, 0.12)';
   ctx.beginPath();
-  ctx.moveTo(cx, cy);
-  ctx.lineTo(cx + Math.cos(rAngle) * 15, cy + Math.sin(rAngle) * 15);
-  ctx.stroke();
+  ctx.moveTo(rcx, rcy);
+  ctx.arc(rcx, rcy, radR, rAngle - 0.45, rAngle);
+  ctx.closePath();
+  ctx.fill();
 
-  ctx.fillStyle = done ? '#34d399' : '#ef4444';
-  ctx.font = 'bold 8px monospace';
+  // Threat Blips (Fade out as radar beam sweeps past)
+  for (let b = 0; b < 3; b++) {
+    const diff = ((rAngle - SOC_BLIP_ANGLES[b]) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+    if (diff < 1.4) {
+      const alphaStep = Math.min(3, Math.floor((1 - diff / 1.4) * 4));
+      ctx.fillStyle = done ? SOC_BLIP_COLORS_SAFE[alphaStep] : SOC_BLIP_COLORS_ALERT[alphaStep];
+      ctx.beginPath();
+      ctx.arc(rcx + SOC_BLIP_DX[b], rcy + SOC_BLIP_DY[b], 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // -------------------------------------------------------------
+  // RIGHT TOP: Live Neon Network Traffic Bar Graph (Equalizer)
+  // -------------------------------------------------------------
+  const barBaseX = scrX + 34;
+  const barBaseY = scrY + 22;
+  for (let b = 0; b < 6; b++) {
+    const bx = barBaseX + b * 6;
+    const barVal = 3 + Math.sin(frame * 0.14 + b * 1.3) * 3 + Math.sin(frame * 0.28 + b * 2.5) * 2;
+    const bh = Math.max(2, Math.min(10, barVal));
+
+    ctx.fillStyle = done ? '#06b6d4' : (b >= 4 ? '#ef4444' : '#f59e0b');
+    ctx.fillRect(bx, barBaseY - bh, 4, bh);
+    // Neon Peak Cap
+    ctx.fillStyle = done ? '#a5f3fc' : '#fef08a';
+    ctx.fillRect(bx, barBaseY - bh, 4, 1);
+  }
+
+  // -------------------------------------------------------------
+  // RIGHT BOTTOM: Scrolling Threat Data Lines
+  // -------------------------------------------------------------
+  const feedIdx = Math.floor(frame / 32) % SOC_THREAT_FEEDS.length;
+  ctx.font = '4.5px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = done ? '#34d399' : '#f87171';
+  ctx.fillText(SOC_THREAT_FEEDS[feedIdx], barBaseX, scrY + 29);
+  ctx.fillStyle = done ? '#6ee7b7' : '#fbbf24';
+  ctx.fillText(SOC_THREAT_FEEDS[(feedIdx + 1) % SOC_THREAT_FEEDS.length], barBaseX, scrY + 35);
+
+  // Bottom Status Banner
+  ctx.font = 'bold 6px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText(done ? 'UMBRELLA: SAFE' : 'C2 BEACON ALERT', cx, sy + sh - 6);
+  ctx.fillStyle = done ? '#34d399' : '#ef4444';
+  ctx.fillText(done ? 'UMBRELLA: PROTECTED' : 'C2 BEACON ALERT', scrX + scrW / 2, scrY + scrH - 2);
 
+  // Scanlines Overlay
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+  for (let ly = scrY; ly < scrY + scrH; ly += 2) {
+    ctx.fillRect(scrX, ly, scrW, 1);
+  }
+  ctx.restore();
+
+  // Quest Status Badge
   const badgeY = sy - 14;
   ctx.beginPath();
   ctx.arc(pt.x, badgeY, 13, 0, Math.PI * 2);
@@ -548,15 +938,17 @@ export const drawChunkySocWall = (
 
   ctx.fillStyle = done ? '#34d399' : '#f87171';
   ctx.font = 'bold 12px monospace';
+  ctx.textAlign = 'center';
   ctx.fillText(done ? '✓' : '!', pt.x, badgeY + 4);
 };
 
-// 7. Chunky Neapolitan Bar & Pizza Box
+// 7. Chunky Neapolitan Bar & Pizza Box (Steaming Espresso Cup & Machine)
 export const drawChunkyNeapolitanBar = (
   ctx: CanvasRenderingContext2D,
   gx: number,
   gy: number,
-  canvasW: number
+  canvasW: number,
+  frame: number = 0
 ) => {
   const pt = gridToScreen(gx, gy, canvasW);
   const bw = 68;
@@ -578,6 +970,7 @@ export const drawChunkyNeapolitanBar = (
   ctx.fillStyle = '#451a03';
   ctx.fillRect(bx, by + bh, bw, 8);
 
+  // Faema E61 Espresso Machine
   ctx.fillStyle = '#cbd5e1';
   ctx.fillRect(bx + 4, by - 20, 26, 22);
   ctx.fillStyle = '#475569';
@@ -586,6 +979,7 @@ export const drawChunkyNeapolitanBar = (
   ctx.fillRect(bx + 8, by + 2, 7, 3);
   ctx.fillRect(bx + 17, by + 2, 7, 3);
 
+  // Portafilter handle
   ctx.fillStyle = '#94a3b8';
   ctx.beginPath();
   ctx.moveTo(bx + 34, by - 14);
@@ -597,6 +991,20 @@ export const drawChunkyNeapolitanBar = (
   ctx.fillStyle = '#475569';
   ctx.fillRect(bx + 38, by - 17, 2, 3);
 
+  // Ceramic espresso cup on the counter with dark roast crema
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(bx + 33, by + 2, 7, 8);
+  ctx.fillStyle = '#3e1c00'; // rich Neapolitan espresso crema
+  ctx.fillRect(bx + 34, by + 3, 5, 3);
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(bx + 39, by + 4, 2, 4);
+
+  // Steam plumes: freshly poured cup + espresso machine group heads
+  drawSteamPlume(ctx, bx + 36, by + 1, frame, 6);
+  drawSteamPlume(ctx, bx + 16, by - 4, frame + 30, 4);
+
+  // Pizza box
   ctx.fillStyle = '#fef08a';
   ctx.fillRect(bx + 46, by + 4, 20, 20);
   ctx.strokeStyle = '#dc2626';
@@ -915,57 +1323,92 @@ export const drawUndergroundDatacenterWalls = (ctx: CanvasRenderingContext2D, ca
   ctx.restore();
 };
 
-// 12. Raised Datacenter Floor with Perforated Cooling Grilles
-export const drawUndergroundFloor = (ctx: CanvasRenderingContext2D, canvasW: number, tgt: TilePos | null) => {
+// 12. Raised Datacenter Floor with Perforated Cooling Grilles & Cool Mist Particles
+export const drawUndergroundFloor = (
+  ctx: CanvasRenderingContext2D,
+  canvasW: number,
+  tgt: TilePos | null,
+  frame: number = 0
+) => {
+  const originX = canvasW * 0.5;
+  const halfW = TILE_W * 0.5; // 48
+  const halfH = TILE_H * 0.5; // 24
+
   for (let r = 0; r < GRID_SIZE; r++) {
     for (let c = 0; c < GRID_SIZE; c++) {
-      const pt = gridToScreen(c, r, canvasW);
+      // Inlined projection: zero heap allocation
+      const ptX = (c - r) * halfW + originX;
+      const ptY = (c + r) * halfH + ORIGIN_Y;
       const isAlternate = (c + r) % 2 === 0;
 
       ctx.beginPath();
-      ctx.moveTo(pt.x, pt.y);
-      ctx.lineTo(pt.x + TILE_W / 2, pt.y + TILE_H / 2);
-      ctx.lineTo(pt.x, pt.y + TILE_H);
-      ctx.lineTo(pt.x - TILE_W / 2, pt.y + TILE_H / 2);
+      ctx.moveTo(ptX, ptY);
+      ctx.lineTo(ptX + halfW, ptY + halfH);
+      ctx.lineTo(ptX, ptY + TILE_H);
+      ctx.lineTo(ptX - halfW, ptY + halfH);
       ctx.closePath();
 
       // Cold aisle perforated tiles down the central corridor
       const isColdAisle = (c >= 2 && c <= 4 && r >= 2 && r <= 4);
 
       if (isColdAisle) {
-        ctx.fillStyle = isAlternate ? '#1e293b' : '#0f172a';
+        ctx.fillStyle = isAlternate ? COLOR_VAULT_AISLE_1 : COLOR_VAULT_AISLE_2;
         ctx.fill();
-        ctx.strokeStyle = '#0284c7';
-        ctx.lineWidth = 1.5;
+
+        // Sinusoidal pulsing glow calculation
+        const pulse = 0.5 + 0.5 * Math.sin(frame * 0.06 + (c + r) * 0.8);
+        ctx.strokeStyle = pulse > 0.55 ? COLOR_VAULT_STROKE_PULSE : COLOR_VAULT_STROKE_AISLE;
+        ctx.lineWidth = pulse > 0.55 ? 1.8 : 1.5;
         ctx.stroke();
 
-        // Sub-floor blue cooling glow
-        ctx.save();
-        ctx.fillStyle = 'rgba(56, 189, 248, 0.25)';
+        // Sub-floor cyan cooling glow (expands and breathes)
+        const glowRadius = 13 + pulse * 5;
+        const glowAlpha = 0.18 + pulse * 0.22;
+        ctx.fillStyle = COLOR_CYAN_GLOW;
+        ctx.globalAlpha = glowAlpha;
         ctx.beginPath();
-        ctx.arc(pt.x, pt.y + TILE_H / 2, 12, 0, Math.PI * 2);
+        ctx.arc(ptX, ptY + halfH, glowRadius, 0, PI2);
         ctx.fill();
-        ctx.restore();
 
-        // Perforated hole pattern
-        ctx.fillStyle = '#38bdf8';
+        // Perforated grille holes with illuminated ventilation airflow
+        ctx.globalAlpha = 0.6 + pulse * 0.4;
         for (let dx = -8; dx <= 8; dx += 8) {
           for (let dy = -4; dy <= 4; dy += 4) {
-            ctx.fillRect(pt.x + dx, pt.y + TILE_H / 2 + dy, 2, 2);
+            ctx.fillRect(ptX + dx, ptY + halfH + dy, 2, 2);
           }
         }
+        ctx.globalAlpha = 1.0;
+
+        // Cool mist particles rising from sub-floor pressurized airflow
+        for (let m = 0; m < 2; m++) {
+          const mSeed = c * 7 + r * 13 + m * 31;
+          const t = ((frame * 0.32 + mSeed) % 60) / 60;
+          const mistY = (ptY + halfH) - t * 24;
+          const mistX = ptX + Math.sin(frame * 0.07 + mSeed) * (3 + t * 4);
+          const mistR = 1.0 + t * 2.8;
+          const mistAlpha = Math.sin(t * Math.PI) * 0.28;
+
+          if (mistAlpha > 0.02) {
+            ctx.fillStyle = COLOR_COOL_MIST;
+            ctx.globalAlpha = mistAlpha;
+            ctx.beginPath();
+            ctx.arc(mistX, mistY, mistR, 0, PI2);
+            ctx.fill();
+          }
+        }
+        ctx.globalAlpha = 1.0;
       } else {
-        ctx.fillStyle = isAlternate ? '#1e293b' : '#151d2f';
+        ctx.fillStyle = isAlternate ? COLOR_VAULT_SLATE_1 : COLOR_VAULT_SLATE_2;
         ctx.fill();
-        ctx.strokeStyle = '#090d16';
+        ctx.strokeStyle = COLOR_VAULT_STROKE_DEF;
         ctx.lineWidth = 1;
         ctx.stroke();
       }
 
       if (tgt && Math.round(tgt.x) === c && Math.round(tgt.y) === r) {
-        ctx.fillStyle = 'rgba(56, 189, 248, 0.4)';
+        ctx.fillStyle = COLOR_TARGET_CYAN;
         ctx.fill();
-        ctx.strokeStyle = '#38bdf8';
+        ctx.strokeStyle = COLOR_CYAN_GLOW;
         ctx.lineWidth = 2.5;
         ctx.stroke();
       }
@@ -1065,7 +1508,7 @@ export const drawChunkyIndustrialElevator = (
   ctx.fill();
 };
 
-// 14. Chunky Wireshark DPI Console Workstation (Tile 2, 2 in Vault)
+// 14. Chunky Wireshark DPI Console Workstation (Hex Dump + Packet Flow Indicators)
 export const drawChunkyWiresharkConsole = (
   ctx: CanvasRenderingContext2D,
   gx: number,
@@ -1086,40 +1529,86 @@ export const drawChunkyWiresharkConsole = (
   ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
   ctx.fill();
 
-  // Console Desk (High-Tech Carbon)
+  // Carbon Console Desk
   ctx.fillStyle = '#0f172a';
   ctx.fillRect(dx, dy + 16, w, 22);
   ctx.strokeStyle = '#0284c7';
   ctx.lineWidth = 1.5;
   ctx.strokeRect(dx, dy + 16, w, 22);
 
-  // Dual Ultrawide Curving Monitor
+  // Ultrawide Curving Monitor Bezel
   ctx.fillStyle = '#020617';
   ctx.fillRect(dx + 4, dy - 18, w - 8, 32);
   ctx.strokeStyle = level4Done ? '#10b981' : '#38bdf8';
   ctx.lineWidth = 2;
   ctx.strokeRect(dx + 4, dy - 18, w - 8, 32);
 
-  // Monitor Display: Wireshark Packet Streams
+  // Monitor Display Surface
+  const scrX = dx + 6;
+  const scrY = dy - 16;
+  const scrW = w - 12; // 46px
+  const scrH = 28;
   ctx.fillStyle = '#040d1a';
-  ctx.fillRect(dx + 6, dy - 16, w - 12, 28);
+  ctx.fillRect(scrX, scrY, scrW, scrH);
 
-  // Shark Fin Logo or Anomaly Beacon
-  ctx.font = 'bold 8px monospace';
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(scrX, scrY, scrW, scrH);
+  ctx.clip();
+
+  // -------------------------------------------------------------
+  // TOP ROW: Header Title & Green/Amber Packet Flow Indicators
+  // -------------------------------------------------------------
+  ctx.font = 'bold 5.5px monospace';
+  ctx.textAlign = 'left';
   ctx.fillStyle = '#38bdf8';
-  ctx.fillText('🦈 WIRESHARK', dx + 8, dy - 7);
+  ctx.fillText('🦈 DPI', scrX + 2, scrY + 6);
 
-  // Streaming Packet Lines on Screen
-  for (let l = 0; l < 3; l++) {
-    const isThreatLine = !level4Done && l === 1;
-    ctx.fillStyle = isThreatLine ? '#ef4444' : '#10b981';
-    ctx.fillRect(dx + 8, dy - 2 + l * 4, 20 + ((frame + l * 10) % 18), 2.5);
+  // 5 Moving Packet Flow Indicators
+  const activeStep = Math.floor(frame * 0.22) % 5;
+  for (let p = 0; p < 5; p++) {
+    const isSuspicious = !level4Done && (p === 2 || p === 4);
+    const isActive = (p === activeStep);
+    ctx.fillStyle = isActive
+      ? (isSuspicious ? '#fbbf24' : '#34d399')
+      : (isSuspicious ? '#92400e' : '#064e3b');
+    ctx.fillRect(scrX + 22 + p * 4.5, scrY + 2.5, 3.5, 3.5);
   }
 
-  // Workstation Status Notification
-  ctx.font = 'bold 6.5px monospace';
+  // -------------------------------------------------------------
+  // MIDDLE: Scrolling Raw Hex Dump Lines
+  // -------------------------------------------------------------
+  const hexIdx = Math.floor(frame / 26) % WIRESHARK_HEX_LINES.length;
+  const hex1 = WIRESHARK_HEX_LINES[hexIdx];
+  const hex2 = WIRESHARK_HEX_LINES[(hexIdx + 1) % WIRESHARK_HEX_LINES.length];
+
+  ctx.font = '4.5px monospace';
+  ctx.fillStyle = level4Done ? '#6ee7b7' : '#94a3b8';
+  ctx.fillText(hex1, scrX + 2, scrY + 13);
+
+  // Highlight suspicious byte row in amber when not solved
+  ctx.fillStyle = level4Done ? '#34d399' : (hexIdx % 2 === 0 ? '#fbbf24' : '#6ee7b7');
+  ctx.fillText(hex2, scrX + 2, scrY + 19);
+
+  // Scanning Byte Inspection Cursor Underline
+  const colIdx = Math.floor(frame / 6) % 4;
+  const underX = scrX + 11 + colIdx * 7.5;
+  ctx.fillStyle = level4Done ? '#10b981' : '#f59e0b';
+  ctx.fillRect(underX, scrY + 20, 6, 1);
+
+  // -------------------------------------------------------------
+  // BOTTOM: Live PCAP Stream Status
+  // -------------------------------------------------------------
+  ctx.font = 'bold 5px monospace';
   ctx.fillStyle = level4Done ? '#10b981' : '#ef4444';
-  ctx.fillText(level4Done ? 'SAFE: 0 THREATS' : 'ALERT: DNS EXFIL', dx + 8, dy + 10);
+  ctx.fillText(level4Done ? 'PCAP: FILTER APPLIED' : 'DNS EXFIL DETECTED', scrX + 2, scrY + 26);
+
+  // Scanlines Overlay
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+  for (let ly = scrY; ly < scrY + scrH; ly += 2) {
+    ctx.fillRect(scrX, ly, scrW, 1);
+  }
+  ctx.restore();
 };
 
 // 15. Cisco Firepower 4100 NGFW Wall (Tile 5, 2 in Vault)
@@ -1276,5 +1765,319 @@ export const drawChunkySecBot = (
   ctx.beginPath();
   ctx.arc(bx, by - 25, 2.5, 0, Math.PI * 2);
   ctx.fill();
+};
+
+// 17. Rotating 3D Cisco Hologram (Office) & Cyber Defense Shield (Datacenter Vault)
+export const drawCiscoHologram = (
+  ctx: CanvasRenderingContext2D,
+  gx: number,
+  gy: number,
+  canvasW: number,
+  frame: number,
+  variant: 'office' | 'datacenter_vault' = 'office'
+) => {
+  const pt = gridToScreen(gx, gy, canvasW);
+  const baseX = pt.x;
+  const baseY = pt.y + 24; // Center of isometric floor tile diamond
+
+  ctx.save();
+
+  // --- 1. PROJECTOR EMITTER BASE ON FLOOR ---
+  // A) Floor shadow & outer mounting plate (dimetric 2:1 ellipse)
+  ctx.beginPath();
+  ctx.ellipse(baseX, baseY, 32, 16, 0, 0, Math.PI * 2);
+  ctx.fillStyle = '#0b0f19';
+  ctx.fill();
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // B) 3D Beveled Base Housing (4px extrusion)
+  ctx.beginPath();
+  ctx.moveTo(baseX - 30, baseY);
+  ctx.lineTo(baseX - 30, baseY - 4);
+  ctx.ellipse(baseX, baseY - 4, 30, 15, 0, Math.PI, 0, true);
+  ctx.lineTo(baseX + 30, baseY);
+  ctx.ellipse(baseX, baseY, 30, 15, 0, 0, Math.PI, false);
+  ctx.closePath();
+  ctx.fillStyle = '#0f172a';
+  ctx.fill();
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // C) Top Emitter Disc
+  ctx.beginPath();
+  ctx.ellipse(baseX, baseY - 4, 30, 15, 0, 0, Math.PI * 2);
+  ctx.fillStyle = '#1e293b';
+  ctx.fill();
+  ctx.strokeStyle = '#475569';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // D) Concentric Emitter Aperture & Glowing Lens
+  const pulse = 0.65 + Math.sin(frame * 0.1) * 0.25;
+  const isOffice = variant === 'office';
+  const accentGlow = isOffice ? 'rgba(0, 188, 235,' : 'rgba(6, 182, 212,';
+
+  ctx.beginPath();
+  ctx.ellipse(baseX, baseY - 4, 20, 10, 0, 0, Math.PI * 2);
+  ctx.fillStyle = isOffice ? '#0284c7' : '#0f766e';
+  ctx.fill();
+  ctx.strokeStyle = `${accentGlow} ${pulse})`;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // E) 4 Orbital Focusing Node LEDs
+  for (let k = 0; k < 4; k++) {
+    const nodeA = frame * 0.02 + k * (Math.PI / 2);
+    const nx = baseX + Math.cos(nodeA) * 20;
+    const ny = (baseY - 4) + Math.sin(nodeA) * 10;
+    ctx.fillStyle = isOffice ? '#38bdf8' : '#10b981';
+    ctx.fillRect(nx - 1.5, ny - 1.5, 3, 3);
+  }
+
+  // F) Central Projection Laser Diode
+  ctx.beginPath();
+  ctx.arc(baseX, baseY - 4, 4, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+
+  // --- 2. UPWARD TRANSLUCENT LIGHT CONE ---
+  const holoBob = Math.sin(frame * 0.06) * 4;
+  const holoCenterY = pt.y - 48 + holoBob;
+
+  const coneGrad = ctx.createLinearGradient(baseX, baseY - 4, baseX, holoCenterY - 32);
+  if (isOffice) {
+    coneGrad.addColorStop(0, 'rgba(0, 188, 235, 0.35)');
+    coneGrad.addColorStop(0.35, 'rgba(56, 189, 248, 0.18)');
+    coneGrad.addColorStop(0.75, 'rgba(2, 132, 199, 0.08)');
+    coneGrad.addColorStop(1, 'rgba(0, 188, 235, 0)');
+  } else {
+    coneGrad.addColorStop(0, 'rgba(16, 185, 129, 0.35)');
+    coneGrad.addColorStop(0.35, 'rgba(6, 182, 212, 0.18)');
+    coneGrad.addColorStop(0.75, 'rgba(56, 189, 248, 0.08)');
+    coneGrad.addColorStop(1, 'rgba(6, 182, 212, 0)');
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(baseX - 20, baseY - 4);
+  ctx.lineTo(baseX - 38, holoCenterY - 26);
+  ctx.lineTo(baseX + 38, holoCenterY - 26);
+  ctx.lineTo(baseX + 20, baseY - 4);
+  ctx.closePath();
+  ctx.fillStyle = coneGrad;
+  ctx.fill();
+
+  // Lateral Laser Beam Guidewires
+  const laserAlpha = 0.18 + Math.sin(frame * 0.12) * 0.08;
+  ctx.strokeStyle = isOffice ? `rgba(56, 189, 248, ${laserAlpha})` : `rgba(16, 185, 129, ${laserAlpha})`;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(baseX - 20, baseY - 4);
+  ctx.lineTo(baseX - 38, holoCenterY - 26);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(baseX + 20, baseY - 4);
+  ctx.lineTo(baseX + 38, holoCenterY - 26);
+  ctx.stroke();
+
+  // Central Vertical Core Beam Axis
+  ctx.strokeStyle = `rgba(255, 255, 255, ${laserAlpha * 0.8})`;
+  ctx.beginPath();
+  ctx.moveTo(baseX, baseY - 4);
+  ctx.lineTo(baseX, holoCenterY + 16);
+  ctx.stroke();
+
+  // --- 3. ORBITING PHOTON SPARKS (BEHIND PASS) ---
+  const sparkCount = 5;
+  for (let s = 0; s < sparkCount; s++) {
+    const sSpeed = 0.04 + (s % 2) * 0.015;
+    const sDir = (s % 2 === 0) ? 1 : -1;
+    const sAngle = frame * sSpeed * sDir + s * ((Math.PI * 2) / sparkCount);
+    const sSin = Math.sin(sAngle);
+    if (sSin < 0) { // Behind hologram
+      const sRadX = 26 + (s % 3) * 5;
+      const sRadY = sRadX * 0.45;
+      const sx = baseX + Math.cos(sAngle) * sRadX;
+      const sy = holoCenterY + (s - 2) * 7 + sSin * sRadY;
+      const sAlpha = 0.25 + 0.35 * Math.abs(Math.sin(frame * 0.1 + s));
+      ctx.fillStyle = isOffice ? `rgba(224, 242, 254, ${sAlpha})` : `rgba(167, 243, 208, ${sAlpha})`;
+      ctx.fillRect(sx - 1, sy - 1, 2, 2);
+    }
+  }
+
+  // --- 4. 3D ROTATING HOLOGRAM GEOMETRY ---
+  if (isOffice) {
+    // 3D Rotating Cisco 9-Bar Bridge Logo
+    const barHeights = [10, 16, 22, 28, 36, 28, 22, 16, 10];
+    const rot = frame * 0.035;
+    const radius = 26;
+
+    // Draw bars depth-sorted: back bars first, front bars second
+    const order = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+    order.sort((a, b) => Math.cos(rot + (a - 4) * 0.26) - Math.cos(rot + (b - 4) * 0.26));
+
+    for (let k = 0; k < 9; k++) {
+      const i = order[k];
+      const angle = rot + (i - 4) * 0.26;
+      const cosA = Math.cos(angle);
+      const sinA = Math.sin(angle);
+      const bx = baseX + sinA * radius;
+      const depthScale = (cosA + 1.6) / 2.6; // 0.23 .. 1.0
+      const bh = barHeights[i] * depthScale;
+      const bw = Math.max(2, 3.2 * depthScale);
+      const bAlpha = Math.max(0.2, 0.4 + cosA * 0.4);
+
+      // Bar Body (Glowing Cyan)
+      ctx.fillStyle = `rgba(56, 189, 248, ${bAlpha})`;
+      ctx.fillRect(bx - bw / 2, holoCenterY - bh / 2, bw, bh);
+
+      // Bright Cyan Highlight Caps on top and bottom of each bar
+      ctx.fillStyle = `rgba(224, 242, 254, ${Math.min(1, bAlpha * 1.3)})`;
+      ctx.fillRect(bx - bw / 2, holoCenterY - bh / 2, bw, 2);
+      ctx.fillRect(bx - bw / 2, holoCenterY + bh / 2 - 2, bw, 2);
+    }
+
+    // Floating Cisco Text / Baseline
+    ctx.font = 'bold 8px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = `rgba(56, 189, 248, ${0.65 + Math.sin(frame * 0.1) * 0.25})`;
+    ctx.fillText('CISCO', baseX, holoCenterY + 26);
+  } else {
+    // Datacenter Vault: 3D Rotating Cyber Defense Shield & Security Badge
+    const shieldRot = frame * 0.038;
+    const cosR = Math.cos(shieldRot);
+    const absCosR = Math.abs(cosR);
+    const isFront = cosR >= 0;
+
+    // 5-Vertex Shield Polygon:
+    const v0x = baseX - 18 * cosR;
+    const v0y = holoCenterY - 16;
+    const v1x = baseX + 18 * cosR;
+    const v1y = holoCenterY - 16;
+    const v2x = baseX + 18 * cosR;
+    const v2y = holoCenterY + 2;
+    const v3x = baseX;
+    const v3y = holoCenterY + 20;
+    const v4x = baseX - 18 * cosR;
+    const v4y = holoCenterY + 2;
+
+    ctx.beginPath();
+    ctx.moveTo(v0x, v0y);
+    ctx.lineTo(v1x, v1y);
+    ctx.lineTo(v2x, v2y);
+    ctx.lineTo(v3x, v3y);
+    ctx.lineTo(v4x, v4y);
+    ctx.closePath();
+
+    // Shield Body Fill
+    if (isFront) {
+      const shieldGrad = ctx.createLinearGradient(baseX, holoCenterY - 16, baseX, holoCenterY + 20);
+      shieldGrad.addColorStop(0, 'rgba(6, 182, 212, 0.45)');
+      shieldGrad.addColorStop(1, 'rgba(16, 185, 129, 0.25)');
+      ctx.fillStyle = shieldGrad;
+    } else {
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
+    }
+    ctx.fill();
+
+    // Glowing Cyber Shield Border
+    ctx.strokeStyle = isFront ? 'rgba(56, 189, 248, 0.85)' : 'rgba(6, 182, 212, 0.5)';
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+
+    // Front Face Insignia: Cyber Checkmark / Shackle
+    if (isFront && absCosR > 0.25) {
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(baseX - 7 * cosR, holoCenterY - 1);
+      ctx.lineTo(baseX - 1 * cosR, holoCenterY + 6);
+      ctx.lineTo(baseX + 7 * cosR, holoCenterY - 5);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(224, 242, 254, 0.8)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(baseX, holoCenterY - 6, 4 * absCosR, Math.PI, 0);
+      ctx.stroke();
+    } else if (!isFront && absCosR > 0.25) {
+      ctx.strokeStyle = 'rgba(16, 185, 129, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(baseX - 10 * cosR, holoCenterY);
+      ctx.lineTo(baseX + 10 * cosR, holoCenterY);
+      ctx.moveTo(baseX, holoCenterY - 10);
+      ctx.lineTo(baseX, holoCenterY + 10);
+      ctx.stroke();
+    }
+
+    // Orbiting Elliptical Security Perimeter Rings
+    const ringAngle = frame * 0.02;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.ellipse(baseX, holoCenterY, 26, 12, ringAngle, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+
+    // Floating Datacenter Vault Label
+    ctx.font = 'bold 8px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = `rgba(56, 189, 248, ${0.65 + Math.sin(frame * 0.1) * 0.25})`;
+    ctx.fillText('SEC-VAULT', baseX, holoCenterY + 26);
+  }
+
+  // --- 5. ORBITING PHOTON SPARKS (FRONT PASS) ---
+  for (let s = 0; s < sparkCount; s++) {
+    const sSpeed = 0.04 + (s % 2) * 0.015;
+    const sDir = (s % 2 === 0) ? 1 : -1;
+    const sAngle = frame * sSpeed * sDir + s * ((Math.PI * 2) / sparkCount);
+    const sSin = Math.sin(sAngle);
+    if (sSin >= 0) { // Front of hologram
+      const sRadX = 26 + (s % 3) * 5;
+      const sRadY = sRadX * 0.45;
+      const sx = baseX + Math.cos(sAngle) * sRadX;
+      const sy = holoCenterY + (s - 2) * 7 + sSin * sRadY;
+      const sAlpha = 0.4 + 0.5 * Math.abs(Math.sin(frame * 0.1 + s));
+
+      ctx.fillStyle = isOffice ? `rgba(224, 242, 254, ${sAlpha})` : `rgba(167, 243, 208, ${sAlpha})`;
+      ctx.fillRect(sx - 1, sy - 1, 2, 2);
+
+      const pAngle = sAngle - 0.1 * sDir;
+      const px = baseX + Math.cos(pAngle) * sRadX;
+      const py = holoCenterY + (s - 2) * 7 + Math.sin(pAngle) * sRadY;
+      ctx.strokeStyle = isOffice ? `rgba(56, 189, 248, ${sAlpha * 0.45})` : `rgba(16, 185, 129, ${sAlpha * 0.45})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(sx, sy);
+      ctx.stroke();
+    }
+  }
+
+  // --- 6. SCANLINE FLICKER LINE & CRT RASTER OVERLAY ---
+  const scanProgress = ((frame * 1.6) % 60) - 30;
+  const scanY = holoCenterY + scanProgress;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.48)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(baseX - 28, scanY);
+  ctx.lineTo(baseX + 28, scanY);
+  ctx.stroke();
+
+  // Subtle CRT Raster Lines (Zero GC)
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.08)';
+  ctx.lineWidth = 0.8;
+  for (let ry = holoCenterY - 24; ry <= holoCenterY + 20; ry += 6) {
+    ctx.beginPath();
+    ctx.moveTo(baseX - 24, ry);
+    ctx.lineTo(baseX + 24, ry);
+    ctx.stroke();
+  }
+
+  ctx.restore();
 };
 

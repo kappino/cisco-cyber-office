@@ -51,7 +51,7 @@ export const CrtTerminalGame: React.FC<Props> = ({ onBack, onComplete, isComplet
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    sound.playClick();
+    sound.playMechanicalKey();
 
     if (e.key === 'Enter') {
       executeCommand(inputVal.trim());

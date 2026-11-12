@@ -1,0 +1,332 @@
+--- a/src/canvas/characterRenderers.ts
++++ b/src/canvas/characterRenderers.ts
+@@ -83,18 +83,43 @@
+ 
+-// 11. Charming Habbo Proportioned Avatar
++// 11. Charming Habbo Proportioned Avatar with Seated Pose Support (Milestone 3 / R2)
+ export const drawCharmingHabboAvatar = (
+   ctx: CanvasRenderingContext2D,
+   p: TilePos,
+   canvasW: number,
+   dir: Direction,
+   isWalking: boolean,
+   frame: number,
+   avatar: AvatarConfig,
+-  playerLevel: number
++  playerLevel: number,
++  isSitting: boolean = false
+ ) => {
+   const pt = gridToScreen(p.x, p.y, canvasW);
+   const walkCycle = isWalking ? Math.sin(frame * 0.35) : 0;
+-  const breathe = !isWalking ? Math.sin(frame * 0.08) * 1.5 : 0;
++  const sitOffset = isSitting ? 8 : 0;
++  const breathe = isWalking
++    ? 0
++    : isSitting
++      ? Math.sin(frame * 0.1) * 0.8
++      : Math.sin(frame * 0.08) * 1.5;
++  const yShift = sitOffset + breathe;
+ 
+-  // Floor Shadow
+-  ctx.beginPath();
+-  ctx.ellipse(pt.x, pt.y + 16, 20, 8, 0, 0, Math.PI * 2);
+-  ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+-  ctx.fill();
++  // Floor Shadow & Office Chair Base
++  if (isSitting) {
++    // Swivel chair floor shadow
++    ctx.beginPath();
++    ctx.ellipse(pt.x, pt.y + 17, 18, 7, 0, 0, Math.PI * 2);
++    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
++    ctx.fill();
++
++    // Ergonomic office chair seat cushion
++    ctx.fillStyle = '#1e293b';
++    ctx.beginPath();
++    ctx.ellipse(pt.x, pt.y + 7, 16, 7, 0, 0, Math.PI * 2);
++    ctx.fill();
++    ctx.strokeStyle = '#334155';
++    ctx.lineWidth = 1.5;
++    ctx.stroke();
++  } else {
++    // Standing floor shadow
++    ctx.beginPath();
++    ctx.ellipse(pt.x, pt.y + 16, 20, 8, 0, 0, Math.PI * 2);
++    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
++    ctx.fill();
++  }
+ 
+-  // Shoes & Pants
+-  const legOffset = walkCycle * 4;
+-  ctx.fillStyle = '#0f172a';
+-  ctx.fillRect(pt.x - 9, pt.y + 8 + legOffset, 8, 7);
+-  ctx.fillRect(pt.x + 1, pt.y + 8 - legOffset, 8, 7);
+-  // White Sneaker Soles
+-  ctx.fillStyle = '#ffffff';
+-  ctx.fillRect(pt.x - 9, pt.y + 13 + legOffset, 8, 2);
+-  ctx.fillRect(pt.x + 1, pt.y + 13 - legOffset, 8, 2);
+-
+-  // Denim Trousers / Slacks
+-  ctx.fillStyle = avatar.pantsColor;
+-  ctx.fillRect(pt.x - 8, pt.y - 6, 7, 15);
+-  ctx.fillRect(pt.x + 1, pt.y - 6, 7, 15);
++  // Legs, Thighs & Shoes
++  if (isSitting) {
++    // Horizontal bent thighs resting forward on the office chair
++    ctx.fillStyle = avatar.pantsColor;
++    ctx.fillRect(pt.x - 10, pt.y + 2, 9, 6); // left bent thigh
++    ctx.fillRect(pt.x + 1, pt.y + 2, 9, 6);  // right bent thigh
++
++    // Lower legs dropping vertically toward floor
++    ctx.fillRect(pt.x - 8, pt.y + 7, 7, 8);  // left shin
++    ctx.fillRect(pt.x + 2, pt.y + 7, 7, 8);  // right shin
++
++    // Shoes
++    ctx.fillStyle = '#0f172a';
++    ctx.fillRect(pt.x - 8, pt.y + 13, 7, 4);
++    ctx.fillRect(pt.x + 2, pt.y + 13, 7, 4);
++
++    // White Sneaker Soles resting on floor
++    ctx.fillStyle = '#ffffff';
++    ctx.fillRect(pt.x - 8, pt.y + 16, 7, 2);
++    ctx.fillRect(pt.x + 2, pt.y + 16, 7, 2);
++  } else {
++    // Standing / Walking legs & shoes
++    const legOffset = walkCycle * 4;
++    ctx.fillStyle = '#0f172a';
++    ctx.fillRect(pt.x - 9, pt.y + 8 + legOffset, 8, 7);
++    ctx.fillRect(pt.x + 1, pt.y + 8 - legOffset, 8, 7);
++    // White Sneaker Soles
++    ctx.fillStyle = '#ffffff';
++    ctx.fillRect(pt.x - 9, pt.y + 13 + legOffset, 8, 2);
++    ctx.fillRect(pt.x + 1, pt.y + 13 - legOffset, 8, 2);
++
++    // Denim Trousers / Slacks
++    ctx.fillStyle = avatar.pantsColor;
++    ctx.fillRect(pt.x - 8, pt.y - 6, 7, 15);
++    ctx.fillRect(pt.x + 1, pt.y - 6, 7, 15);
++  }
+ 
+   // Belt & Buckle
+   ctx.fillStyle = '#0f172a';
+-  ctx.fillRect(pt.x - 9, pt.y - 7, 18, 3);
+-  ctx.fillStyle = '#fbbf24';
+-  ctx.fillRect(pt.x - 2, pt.y - 7, 4, 3);
++  ctx.fillRect(pt.x - 9, pt.y - 7 + yShift, 18, 3);
++  if (dir === 'SE' || dir === 'SW') {
++    ctx.fillStyle = '#fbbf24';
++    ctx.fillRect(pt.x - 2, pt.y - 7 + yShift, 4, 3);
++  }
+ 
+   // Torso / Shirt with white collar
+   ctx.fillStyle = avatar.shirtColor;
+-  ctx.fillRect(pt.x - 13, pt.y - 28 + breathe, 26, 22);
++  ctx.fillRect(pt.x - 13, pt.y - 28 + yShift, 26, 22);
+   ctx.strokeStyle = '#0f172a';
+   ctx.lineWidth = 1;
+-  ctx.strokeRect(pt.x - 13, pt.y - 28 + breathe, 26, 22);
++  ctx.strokeRect(pt.x - 13, pt.y - 28 + yShift, 26, 22);
+ 
+   // Collar
+-  ctx.fillStyle = '#ffffff';
+-  ctx.fillRect(pt.x - 4, pt.y - 28 + breathe, 8, 4);
++  if (dir === 'SE' || dir === 'SW') {
++    ctx.fillStyle = '#ffffff';
++    ctx.fillRect(pt.x - 4, pt.y - 28 + yShift, 8, 4);
++  }
+ 
+-  // Arms
+-  const armSwing = isWalking ? -walkCycle * 3 : 0;
+-  ctx.fillStyle = avatar.shirtColor;
+-  ctx.fillRect(pt.x - 17, pt.y - 26 + breathe + armSwing, 4, 16);
+-  ctx.fillRect(pt.x + 13, pt.y - 26 + breathe - armSwing, 4, 16);
+-
+-  // Hands
+-  ctx.fillStyle = avatar.skinTone;
+-  ctx.fillRect(pt.x - 17, pt.y - 10 + breathe + armSwing, 4, 5);
+-  ctx.fillRect(pt.x + 13, pt.y - 10 + breathe - armSwing, 4, 5);
++  // Arms & Hands
++  if (isSitting) {
++    // Typing arms reaching forward to desk surface
++    ctx.fillStyle = avatar.shirtColor;
++    ctx.fillRect(pt.x - 16, pt.y - 24 + yShift, 4, 12); // left upper sleeve
++    ctx.fillRect(pt.x + 12, pt.y - 24 + yShift, 4, 12); // right upper sleeve
++
++    // Forearms resting forward on desk
++    ctx.fillRect(pt.x - 15, pt.y - 14 + yShift, 6, 4);
++    ctx.fillRect(pt.x + 9, pt.y - 14 + yShift, 6, 4);
++
++    // Typing hands on desk surface with alternating finger tap animation (frame % 10 < 5)
++    const isTapLeft = (frame % 10 < 5);
++    const leftHandOffset = isTapLeft ? 1.5 : -1.5;
++    const rightHandOffset = isTapLeft ? -1.5 : 1.5;
++
++    ctx.fillStyle = avatar.skinTone;
++    ctx.fillRect(pt.x - 13, pt.y - 12 + yShift + leftHandOffset, 5, 4);
++    ctx.fillRect(pt.x + 8, pt.y - 12 + yShift + rightHandOffset, 5, 4);
++  } else {
++    // Standing arms
++    const armSwing = isWalking ? -walkCycle * 3 : 0;
++    ctx.fillStyle = avatar.shirtColor;
++    ctx.fillRect(pt.x - 17, pt.y - 26 + yShift + armSwing, 4, 16);
++    ctx.fillRect(pt.x + 13, pt.y - 26 + yShift - armSwing, 4, 16);
++
++    // Standing hands
++    ctx.fillStyle = avatar.skinTone;
++    ctx.fillRect(pt.x - 17, pt.y - 10 + yShift + armSwing, 4, 5);
++    ctx.fillRect(pt.x + 13, pt.y - 10 + yShift - armSwing, 4, 5);
++  }
+ 
+   // Ears
+   ctx.fillStyle = avatar.skinTone;
+-  ctx.fillRect(pt.x - 13, pt.y - 41 + breathe, 2, 5);
+-  ctx.fillRect(pt.x + 11, pt.y - 41 + breathe, 2, 5);
++  ctx.fillRect(pt.x - 13, pt.y - 41 + yShift, 2, 5);
++  ctx.fillRect(pt.x + 11, pt.y - 41 + yShift, 2, 5);
+ 
+   // Head
+   ctx.fillStyle = avatar.skinTone;
+-  ctx.fillRect(pt.x - 11, pt.y - 48 + breathe, 22, 20);
+-  ctx.strokeRect(pt.x - 11, pt.y - 48 + breathe, 22, 20);
++  ctx.fillRect(pt.x - 11, pt.y - 48 + yShift, 22, 20);
++  ctx.strokeRect(pt.x - 11, pt.y - 48 + yShift, 22, 20);
+ 
+   // Face Direction & Expressive Eyes
+   if (dir === 'SE' || dir === 'SW') {
+     const shift = dir === 'SE' ? 2 : -2;
+     ctx.fillStyle = '#ffffff';
+-    ctx.fillRect(pt.x - 6 + shift, pt.y - 41 + breathe, 4, 5);
+-    ctx.fillRect(pt.x + 2 + shift, pt.y - 41 + breathe, 4, 5);
++    ctx.fillRect(pt.x - 6 + shift, pt.y - 41 + yShift, 4, 5);
++    ctx.fillRect(pt.x + 2 + shift, pt.y - 41 + yShift, 4, 5);
+     ctx.fillStyle = '#0f172a';
+-    ctx.fillRect(pt.x - 5 + shift, pt.y - 40 + breathe, 3, 4);
+-    ctx.fillRect(pt.x + 3 + shift, pt.y - 40 + breathe, 3, 4);
++    ctx.fillRect(pt.x - 5 + shift, pt.y - 40 + yShift, 3, 4);
++    ctx.fillRect(pt.x + 3 + shift, pt.y - 40 + yShift, 3, 4);
+ 
+     // Smile
+     ctx.strokeStyle = '#0f172a';
+     ctx.lineWidth = 1;
+     ctx.beginPath();
+-    ctx.arc(pt.x + shift, pt.y - 33 + breathe, 4, 0, Math.PI);
++    ctx.arc(pt.x + shift, pt.y - 33 + yShift, 4, 0, Math.PI);
+     ctx.stroke();
+ 
+     // Accessories
+     if (avatar.accessory === 'cyber-visor') {
+       ctx.fillStyle = '#00bceb';
+-      ctx.fillRect(pt.x - 9 + shift, pt.y - 42 + breathe, 18, 7);
++      ctx.fillRect(pt.x - 9 + shift, pt.y - 42 + yShift, 18, 7);
+       ctx.fillStyle = '#ffffff';
+-      ctx.fillRect(pt.x - 7 + shift, pt.y - 41 + breathe, 5, 2);
++      ctx.fillRect(pt.x - 7 + shift, pt.y - 41 + yShift, 5, 2);
+     } else if (avatar.accessory === 'glasses') {
+       ctx.strokeStyle = '#0f172a';
+       ctx.lineWidth = 1.5;
+-      ctx.strokeRect(pt.x - 8 + shift, pt.y - 42 + breathe, 6, 6);
+-      ctx.strokeRect(pt.x + 2 + shift, pt.y - 42 + breathe, 6, 6);
++      ctx.strokeRect(pt.x - 8 + shift, pt.y - 42 + yShift, 6, 6);
++      ctx.strokeRect(pt.x + 2 + shift, pt.y - 42 + yShift, 6, 6);
+       ctx.beginPath();
+-      ctx.moveTo(pt.x - 2 + shift, pt.y - 39 + breathe);
+-      ctx.lineTo(pt.x + 2 + shift, pt.y - 39 + breathe);
++      ctx.moveTo(pt.x - 2 + shift, pt.y - 39 + yShift);
++      ctx.lineTo(pt.x + 2 + shift, pt.y - 39 + yShift);
+       ctx.stroke();
+     }
+   }
+ 
+   // Hair Style
+   ctx.fillStyle = avatar.hairColor;
+   if (avatar.hairStyle === 'spiky') {
+     ctx.beginPath();
+-    ctx.moveTo(pt.x - 13, pt.y - 48 + breathe);
+-    ctx.lineTo(pt.x - 7, pt.y - 58 + breathe);
+-    ctx.lineTo(pt.x - 2, pt.y - 50 + breathe);
+-    ctx.lineTo(pt.x + 4, pt.y - 59 + breathe);
+-    ctx.lineTo(pt.x + 9, pt.y - 50 + breathe);
+-    ctx.lineTo(pt.x + 13, pt.y - 48 + breathe);
++    ctx.moveTo(pt.x - 13, pt.y - 48 + yShift);
++    ctx.lineTo(pt.x - 7, pt.y - 58 + yShift);
++    ctx.lineTo(pt.x - 2, pt.y - 50 + yShift);
++    ctx.lineTo(pt.x + 4, pt.y - 59 + yShift);
++    ctx.lineTo(pt.x + 9, pt.y - 50 + yShift);
++    ctx.lineTo(pt.x + 13, pt.y - 48 + yShift);
+     ctx.closePath();
+     ctx.fill();
+   } else if (avatar.hairStyle === 'curly') {
+     ctx.beginPath();
+-    ctx.arc(pt.x - 8, pt.y - 51 + breathe, 6, 0, Math.PI * 2);
+-    ctx.arc(pt.x, pt.y - 54 + breathe, 7, 0, Math.PI * 2);
+-    ctx.arc(pt.x + 8, pt.y - 51 + breathe, 6, 0, Math.PI * 2);
++    ctx.arc(pt.x - 8, pt.y - 51 + yShift, 6, 0, Math.PI * 2);
++    ctx.arc(pt.x, pt.y - 54 + yShift, 7, 0, Math.PI * 2);
++    ctx.arc(pt.x + 8, pt.y - 51 + yShift, 6, 0, Math.PI * 2);
+     ctx.fill();
+   } else if (avatar.hairStyle === 'cyber') {
+-    ctx.fillRect(pt.x - 4, pt.y - 58 + breathe, 8, 12);
++    ctx.fillRect(pt.x - 4, pt.y - 58 + yShift, 8, 12);
+     ctx.fillStyle = '#00bceb';
+-    ctx.fillRect(pt.x - 12, pt.y - 50 + breathe, 24, 3);
++    ctx.fillRect(pt.x - 12, pt.y - 50 + yShift, 24, 3);
+   } else {
+     ctx.beginPath();
+-    ctx.moveTo(pt.x - 12, pt.y - 48 + breathe);
+-    ctx.quadraticCurveTo(pt.x, pt.y - 57 + breathe, pt.x + 12, pt.y - 48 + breathe);
+-    ctx.lineTo(pt.x + 12, pt.y - 44 + breathe);
+-    ctx.lineTo(pt.x - 12, pt.y - 44 + breathe);
++    ctx.moveTo(pt.x - 12, pt.y - 48 + yShift);
++    ctx.quadraticCurveTo(pt.x, pt.y - 57 + yShift, pt.x + 12, pt.y - 48 + yShift);
++    ctx.lineTo(pt.x + 12, pt.y - 44 + yShift);
++    ctx.lineTo(pt.x - 12, pt.y - 44 + yShift);
+     ctx.closePath();
+     ctx.fill();
+   }
+ 
+   // Floating Habbo Nametag
+   ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+-  ctx.fillRect(pt.x - 55, pt.y - 74 + breathe, 110, 18);
++  ctx.fillRect(pt.x - 55, pt.y - 74 + yShift, 110, 18);
+   ctx.strokeStyle = '#00bceb';
+   ctx.lineWidth = 1;
+-  ctx.strokeRect(pt.x - 55, pt.y - 74 + breathe, 110, 18);
++  ctx.strokeRect(pt.x - 55, pt.y - 74 + yShift, 110, 18);
+ 
+   ctx.fillStyle = '#ffffff';
+   ctx.font = 'bold 10px monospace';
+   ctx.textAlign = 'center';
+-  ctx.fillText(`[Lv.${playerLevel}] ${avatar.name}`, pt.x, pt.y - 61 + breathe);
++  ctx.fillText(`[Lv.${playerLevel}] ${avatar.name}`, pt.x, pt.y - 61 + yShift);
+ };
+--- a/src/components/IsometricOfficeCanvas.tsx
++++ b/src/components/IsometricOfficeCanvas.tsx
+@@ -232,2 +232,10 @@
+ 
++      // Sitting & workstation orientation detection (Milestone 3 / R2)
++      // Check proximity to terminal (5, 2) [interact (5, 3.2)] or wireshark (2, 2) [interact (2.5, 3.2)]
++      const isNearTerminal = currentRoom === 'office' && Math.hypot(5 - cur.x, 3.2 - cur.y) < 0.45;
++      const isNearWireshark = currentRoom === 'datacenter_vault' && Math.hypot(2.5 - cur.x, 3.2 - cur.y) < 0.45;
++      const isSitting = !isWalkingRef.current && (isNearTerminal || isNearWireshark);
++
++      if (isSitting && playerDirRef.current !== 'NW') {
++        playerDirRef.current = 'NW';
++        setPlayerDir('NW');
++      }
++
+@@ -288,9 +296,10 @@
+           id: 'player',
+           depth: p.x + p.y,
+           draw: (context) => drawCharmingHabboAvatar(
+             context, 
+             p, 
+             canvas.width, 
+             playerDirRef.current, 
+             isWalkingRef.current, 
+             frame, 
+             avatar, 
+-            stats.level
++            stats.level,
++            isSitting
+           )
+         }

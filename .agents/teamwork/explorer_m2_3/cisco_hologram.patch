@@ -1,0 +1,344 @@
+--- a/src/canvas/roomRenderers.ts
++++ b/src/canvas/roomRenderers.ts
+@@ -1280,3 +1280,248 @@
++
++// 17. Rotating 3D Cisco Hologram (Office) & Cyber Defense Shield (Datacenter Vault)
++export const drawCiscoHologram = (
++  ctx: CanvasRenderingContext2D,
++  gx: number,
++  gy: number,
++  canvasW: number,
++  frame: number,
++  variant: 'office' | 'datacenter_vault' = 'office'
++) => {
++  const pt = gridToScreen(gx, gy, canvasW);
++  const baseX = pt.x;
++  const baseY = pt.y + 24; // Center of isometric floor tile diamond
++
++  ctx.save();
++
++  // --- 1. PROJECTOR EMITTER BASE ON FLOOR ---
++  // A) Floor shadow & outer mounting plate (dimetric 2:1 ellipse)
++  ctx.beginPath();
++  ctx.ellipse(baseX, baseY, 32, 16, 0, 0, Math.PI * 2);
++  ctx.fillStyle = '#0b0f19';
++  ctx.fill();
++  ctx.strokeStyle = '#1e293b';
++  ctx.lineWidth = 1.5;
++  ctx.stroke();
++
++  // B) 3D Beveled Base Housing (4px extrusion)
++  ctx.beginPath();
++  ctx.moveTo(baseX - 30, baseY);
++  ctx.lineTo(baseX - 30, baseY - 4);
++  ctx.ellipse(baseX, baseY - 4, 30, 15, 0, Math.PI, 0, true);
++  ctx.lineTo(baseX + 30, baseY);
++  ctx.ellipse(baseX, baseY, 30, 15, 0, 0, Math.PI, false);
++  ctx.closePath();
++  ctx.fillStyle = '#0f172a';
++  ctx.fill();
++  ctx.strokeStyle = '#334155';
++  ctx.lineWidth = 1;
++  ctx.stroke();
++
++  // C) Top Emitter Disc
++  ctx.beginPath();
++  ctx.ellipse(baseX, baseY - 4, 30, 15, 0, 0, Math.PI * 2);
++  ctx.fillStyle = '#1e293b';
++  ctx.fill();
++  ctx.strokeStyle = '#475569';
++  ctx.lineWidth = 1;
++  ctx.stroke();
++
++  // D) Concentric Emitter Aperture & Glowing Lens
++  const pulse = 0.65 + Math.sin(frame * 0.1) * 0.25;
++  const isOffice = variant === 'office';
++  const accentGlow = isOffice ? 'rgba(0, 188, 235,' : 'rgba(6, 182, 212,';
++
++  ctx.beginPath();
++  ctx.ellipse(baseX, baseY - 4, 20, 10, 0, 0, Math.PI * 2);
++  ctx.fillStyle = isOffice ? '#0284c7' : '#0f766e';
++  ctx.fill();
++  ctx.strokeStyle = `${accentGlow} ${pulse})`;
++  ctx.lineWidth = 2;
++  ctx.stroke();
++
++  // E) 4 Orbital Focusing Node LEDs
++  for (let k = 0; k < 4; k++) {
++    const nodeA = frame * 0.02 + k * (Math.PI / 2);
++    const nx = baseX + Math.cos(nodeA) * 20;
++    const ny = (baseY - 4) + Math.sin(nodeA) * 10;
++    ctx.fillStyle = isOffice ? '#38bdf8' : '#10b981';
++    ctx.fillRect(nx - 1.5, ny - 1.5, 3, 3);
++  }
++
++  // F) Central Projection Laser Diode
++  ctx.beginPath();
++  ctx.arc(baseX, baseY - 4, 4, 0, Math.PI * 2);
++  ctx.fillStyle = '#ffffff';
++  ctx.fill();
++
++  // --- 2. UPWARD TRANSLUCENT LIGHT CONE ---
++  const holoBob = Math.sin(frame * 0.06) * 4;
++  const holoCenterY = pt.y - 48 + holoBob;
++
++  const coneGrad = ctx.createLinearGradient(baseX, baseY - 4, baseX, holoCenterY - 32);
++  if (isOffice) {
++    coneGrad.addColorStop(0, 'rgba(0, 188, 235, 0.35)');
++    coneGrad.addColorStop(0.35, 'rgba(56, 189, 248, 0.18)');
++    coneGrad.addColorStop(0.75, 'rgba(2, 132, 199, 0.08)');
++    coneGrad.addColorStop(1, 'rgba(0, 188, 235, 0)');
++  } else {
++    coneGrad.addColorStop(0, 'rgba(16, 185, 129, 0.35)');
++    coneGrad.addColorStop(0.35, 'rgba(6, 182, 212, 0.18)');
++    coneGrad.addColorStop(0.75, 'rgba(56, 189, 248, 0.08)');
++    coneGrad.addColorStop(1, 'rgba(6, 182, 212, 0)');
++  }
++
++  ctx.beginPath();
++  ctx.moveTo(baseX - 20, baseY - 4);
++  ctx.lineTo(baseX - 38, holoCenterY - 26);
++  ctx.lineTo(baseX + 38, holoCenterY - 26);
++  ctx.lineTo(baseX + 20, baseY - 4);
++  ctx.closePath();
++  ctx.fillStyle = coneGrad;
++  ctx.fill();
++
++  // Lateral Laser Beam Guidewires
++  const laserAlpha = 0.18 + Math.sin(frame * 0.12) * 0.08;
++  ctx.strokeStyle = isOffice ? `rgba(56, 189, 248, ${laserAlpha})` : `rgba(16, 185, 129, ${laserAlpha})`;
++  ctx.lineWidth = 1;
++  ctx.beginPath();
++  ctx.moveTo(baseX - 20, baseY - 4);
++  ctx.lineTo(baseX - 38, holoCenterY - 26);
++  ctx.stroke();
++  ctx.beginPath();
++  ctx.moveTo(baseX + 20, baseY - 4);
++  ctx.lineTo(baseX + 38, holoCenterY - 26);
++  ctx.stroke();
++
++  // Central Vertical Core Beam Axis
++  ctx.strokeStyle = `rgba(255, 255, 255, ${laserAlpha * 0.8})`;
++  ctx.beginPath();
++  ctx.moveTo(baseX, baseY - 4);
++  ctx.lineTo(baseX, holoCenterY + 16);
++  ctx.stroke();
++
++  // --- 3. ORBITING PHOTON SPARKS (BEHIND PASS) ---
++  const sparkCount = 5;
++  for (let s = 0; s < sparkCount; s++) {
++    const sSpeed = 0.04 + (s % 2) * 0.015;
++    const sDir = (s % 2 === 0) ? 1 : -1;
++    const sAngle = frame * sSpeed * sDir + s * ((Math.PI * 2) / sparkCount);
++    const sSin = Math.sin(sAngle);
++    if (sSin < 0) { // Behind hologram
++      const sRadX = 26 + (s % 3) * 5;
++      const sRadY = sRadX * 0.45;
++      const sx = baseX + Math.cos(sAngle) * sRadX;
++      const sy = holoCenterY + (s - 2) * 7 + sSin * sRadY;
++      const sAlpha = 0.25 + 0.35 * Math.abs(Math.sin(frame * 0.1 + s));
++      ctx.fillStyle = isOffice ? `rgba(224, 242, 254, ${sAlpha})` : `rgba(167, 243, 208, ${sAlpha})`;
++      ctx.fillRect(sx - 1, sy - 1, 2, 2);
++    }
++  }
++
++  // --- 4. 3D ROTATING HOLOGRAM GEOMETRY ---
++  if (isOffice) {
++    // 3D Rotating Cisco 9-Bar Bridge Logo
++    const barHeights = [10, 16, 22, 28, 36, 28, 22, 16, 10];
++    const rot = frame * 0.035;
++    const radius = 26;
++
++    // Draw bars depth-sorted: back bars first, front bars second
++    const order = [0, 1, 2, 3, 4, 5, 6, 7, 8];
++    order.sort((a, b) => Math.cos(rot + (a - 4) * 0.26) - Math.cos(rot + (b - 4) * 0.26));
++
++    for (let k = 0; k < 9; k++) {
++      const i = order[k];
++      const angle = rot + (i - 4) * 0.26;
++      const cosA = Math.cos(angle);
++      const sinA = Math.sin(angle);
++      const bx = baseX + sinA * radius;
++      const depthScale = (cosA + 1.6) / 2.6; // 0.23 .. 1.0
++      const bh = barHeights[i] * depthScale;
++      const bw = Math.max(2, 3.2 * depthScale);
++      const bAlpha = Math.max(0.2, 0.4 + cosA * 0.4);
++
++      // Bar Body (Glowing Cyan)
++      ctx.fillStyle = `rgba(56, 189, 248, ${bAlpha})`;
++      ctx.fillRect(bx - bw / 2, holoCenterY - bh / 2, bw, bh);
++
++      // Bright Cyan Highlight Caps on top and bottom of each bar
++      ctx.fillStyle = `rgba(224, 242, 254, ${Math.min(1, bAlpha * 1.3)})`;
++      ctx.fillRect(bx - bw / 2, holoCenterY - bh / 2, bw, 2);
++      ctx.fillRect(bx - bw / 2, holoCenterY + bh / 2 - 2, bw, 2);
++    }
++
++    // Floating Cisco Text / Baseline
++    ctx.font = 'bold 8px monospace';
++    ctx.textAlign = 'center';
++    ctx.fillStyle = `rgba(56, 189, 248, ${0.65 + Math.sin(frame * 0.1) * 0.25})`;
++    ctx.fillText('CISCO', baseX, holoCenterY + 26);
++  } else {
++    // Datacenter Vault: 3D Rotating Cyber Defense Shield & Security Badge
++    const shieldRot = frame * 0.038;
++    const cosR = Math.cos(shieldRot);
++    const absCosR = Math.abs(cosR);
++    const isFront = cosR >= 0;
++
++    // 5-Vertex Shield Polygon:
++    const v0x = baseX - 18 * cosR;
++    const v0y = holoCenterY - 16;
++    const v1x = baseX + 18 * cosR;
++    const v1y = holoCenterY - 16;
++    const v2x = baseX + 18 * cosR;
++    const v2y = holoCenterY + 2;
++    const v3x = baseX;
++    const v3y = holoCenterY + 20;
++    const v4x = baseX - 18 * cosR;
++    const v4y = holoCenterY + 2;
++
++    ctx.beginPath();
++    ctx.moveTo(v0x, v0y);
++    ctx.lineTo(v1x, v1y);
++    ctx.lineTo(v2x, v2y);
++    ctx.lineTo(v3x, v3y);
++    ctx.lineTo(v4x, v4y);
++    ctx.closePath();
++
++    // Shield Body Fill
++    if (isFront) {
++      const shieldGrad = ctx.createLinearGradient(baseX, holoCenterY - 16, baseX, holoCenterY + 20);
++      shieldGrad.addColorStop(0, 'rgba(6, 182, 212, 0.45)');
++      shieldGrad.addColorStop(1, 'rgba(16, 185, 129, 0.25)');
++      ctx.fillStyle = shieldGrad;
++    } else {
++      ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
++    }
++    ctx.fill();
++
++    // Glowing Cyber Shield Border
++    ctx.strokeStyle = isFront ? 'rgba(56, 189, 248, 0.85)' : 'rgba(6, 182, 212, 0.5)';
++    ctx.lineWidth = 1.8;
++    ctx.stroke();
++
++    // Front Face Insignia: Cyber Checkmark / Shackle
++    if (isFront && absCosR > 0.25) {
++      ctx.strokeStyle = '#ffffff';
++      ctx.lineWidth = 1.5;
++      ctx.beginPath();
++      ctx.moveTo(baseX - 7 * cosR, holoCenterY - 1);
++      ctx.lineTo(baseX - 1 * cosR, holoCenterY + 6);
++      ctx.lineTo(baseX + 7 * cosR, holoCenterY - 5);
++      ctx.stroke();
++
++      ctx.strokeStyle = 'rgba(224, 242, 254, 0.8)';
++      ctx.lineWidth = 1.2;
++      ctx.beginPath();
++      ctx.arc(baseX, holoCenterY - 6, 4 * absCosR, Math.PI, 0);
++      ctx.stroke();
++    } else if (!isFront && absCosR > 0.25) {
++      ctx.strokeStyle = 'rgba(16, 185, 129, 0.4)';
++      ctx.lineWidth = 1;
++      ctx.beginPath();
++      ctx.moveTo(baseX - 10 * cosR, holoCenterY);
++      ctx.lineTo(baseX + 10 * cosR, holoCenterY);
++      ctx.moveTo(baseX, holoCenterY - 10);
++      ctx.lineTo(baseX, holoCenterY + 10);
++      ctx.stroke();
++    }
++
++    // Orbiting Elliptical Security Perimeter Rings
++    const ringAngle = frame * 0.02;
++    ctx.save();
++    ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
++    ctx.lineWidth = 1;
++    ctx.beginPath();
++    ctx.ellipse(baseX, holoCenterY, 26, 12, ringAngle, 0, Math.PI * 2);
++    ctx.stroke();
++    ctx.restore();
++
++    // Floating Datacenter Vault Label
++    ctx.font = 'bold 8px monospace';
++    ctx.textAlign = 'center';
++    ctx.fillStyle = `rgba(56, 189, 248, ${0.65 + Math.sin(frame * 0.1) * 0.25})`;
++    ctx.fillText('SEC-VAULT', baseX, holoCenterY + 26);
++  }
++
++  // --- 5. ORBITING PHOTON SPARKS (FRONT PASS) ---
++  for (let s = 0; s < sparkCount; s++) {
++    const sSpeed = 0.04 + (s % 2) * 0.015;
++    const sDir = (s % 2 === 0) ? 1 : -1;
++    const sAngle = frame * sSpeed * sDir + s * ((Math.PI * 2) / sparkCount);
++    const sSin = Math.sin(sAngle);
++    if (sSin >= 0) { // Front of hologram
++      const sRadX = 26 + (s % 3) * 5;
++      const sRadY = sRadX * 0.45;
++      const sx = baseX + Math.cos(sAngle) * sRadX;
++      const sy = holoCenterY + (s - 2) * 7 + sSin * sRadY;
++      const sAlpha = 0.4 + 0.5 * Math.abs(Math.sin(frame * 0.1 + s));
++
++      ctx.fillStyle = isOffice ? `rgba(224, 242, 254, ${sAlpha})` : `rgba(167, 243, 208, ${sAlpha})`;
++      ctx.fillRect(sx - 1, sy - 1, 2, 2);
++
++      const pAngle = sAngle - 0.1 * sDir;
++      const px = baseX + Math.cos(pAngle) * sRadX;
++      const py = holoCenterY + (s - 2) * 7 + Math.sin(pAngle) * sRadY;
++      ctx.strokeStyle = isOffice ? `rgba(56, 189, 248, ${sAlpha * 0.45})` : `rgba(16, 185, 129, ${sAlpha * 0.45})`;
++      ctx.lineWidth = 1;
++      ctx.beginPath();
++      ctx.moveTo(px, py);
++      ctx.lineTo(sx, sy);
++      ctx.stroke();
++    }
++  }
++
++  // --- 6. SCANLINE FLICKER LINE & CRT RASTER OVERLAY ---
++  const scanProgress = ((frame * 1.6) % 60) - 30;
++  const scanY = holoCenterY + scanProgress;
++  ctx.strokeStyle = 'rgba(255, 255, 255, 0.48)';
++  ctx.lineWidth = 1.5;
++  ctx.beginPath();
++  ctx.moveTo(baseX - 28, scanY);
++  ctx.lineTo(baseX + 28, scanY);
++  ctx.stroke();
++
++  // Subtle CRT Raster Lines (Zero GC)
++  ctx.strokeStyle = 'rgba(56, 189, 248, 0.08)';
++  ctx.lineWidth = 0.8;
++  for (let ry = holoCenterY - 24; ry <= holoCenterY + 20; ry += 6) {
++    ctx.beginPath();
++    ctx.moveTo(baseX - 24, ry);
++    ctx.lineTo(baseX + 24, ry);
++    ctx.stroke();
++  }
++
++  ctx.restore();
++};
+--- a/src/components/IsometricOfficeCanvas.tsx
++++ b/src/components/IsometricOfficeCanvas.tsx
+@@ -21,3 +21,4 @@
+   drawChunkySecBot,
++  drawCiscoHologram
+ } from '../canvas/roomRenderers';
+@@ -302,3 +303,8 @@
+       if (currentRoom === 'office') {
+         entities.push(
++          {
++            id: 'cisco_hologram',
++            depth: 4 + 4,
++            draw: (context) => drawCiscoHologram(context, 4, 4, canvas.width, frame, 'office')
++          },
+           {
+             id: 'marco',
+@@ -341,3 +347,8 @@
+       } else {
+         // Underground Datacenter Vault entities
+         entities.push(
++          {
++            id: 'datacenter_hologram',
++            depth: 4 + 4,
++            draw: (context) => drawCiscoHologram(context, 4, 4, canvas.width, frame, 'datacenter_vault')
++          },
+           {
+             id: 'wireshark',

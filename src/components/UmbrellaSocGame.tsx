@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { sound } from '../utils/audio';
 import confetti from 'canvas-confetti';
 import { ArrowLeft, CheckCircle2, ShieldAlert, ShieldCheck, Activity, Globe, Lock, Eye, Zap } from 'lucide-react';
@@ -31,6 +31,12 @@ export const UmbrellaSocGame: React.FC<Props> = ({ onBack, onComplete, isComplet
   const [dnsBlocked, setDnsBlocked] = useState<boolean>(initialCompleted);
   const [endpointIsolated, setEndpointIsolated] = useState<boolean>(initialCompleted);
   const [completed, setCompleted] = useState<boolean>(initialCompleted);
+
+  useEffect(() => {
+    if (!initialCompleted) {
+      sound.playCyberAlarm();
+    }
+  }, [initialCompleted]);
 
   const handleEnforceDnsBlock = () => {
     sound.playCableSnap();
@@ -107,8 +113,12 @@ export const UmbrellaSocGame: React.FC<Props> = ({ onBack, onComplete, isComplet
                 <div
                   key={q.id}
                   onClick={() => {
-                    sound.playClick();
-                    if (isMalicious) setSelectedThreat(true);
+                    if (isMalicious) {
+                      sound.playCyberAlarm();
+                      setSelectedThreat(true);
+                    } else {
+                      sound.playClick();
+                    }
                   }}
                   className={`p-2.5 rounded-lg border transition-all cursor-pointer ${
                     isMalicious
