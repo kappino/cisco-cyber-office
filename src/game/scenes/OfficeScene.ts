@@ -1,3 +1,4 @@
+import { HD_DENSITY, hdTextureKeys } from '../utils/hdTextures';
 import Phaser from 'phaser';
 import { EventBus, InteractiveSpotData, TimePhase } from '../EventBus';
 import {
@@ -8,6 +9,7 @@ import {
   Direction
 } from '../utils/isoMath';
 import { ROOM_CONFIGS, RoomConfig } from '../data/roomData';
+import { buildOfficeArchitecture, officeElevation } from '../utils/officeArchitecture';
 
 export class OfficeScene extends Phaser.Scene {
   // Player state
@@ -70,8 +72,8 @@ export class OfficeScene extends Phaser.Scene {
     this.buildRoom(this.currentRoomId, 'init');
 
     // Frame isometric room tightly inside canvas
-    this.cameras.main.centerOn(420, 246);
-    this.cameras.main.setZoom(1.2);
+    this.cameras.main.centerOn(420, 252);
+    this.cameras.main.setZoom(2.1);
 
     // 6. Signal scene ready
     EventBus.emit('SCENE_READY', 'OfficeScene');
@@ -182,6 +184,11 @@ export class OfficeScene extends Phaser.Scene {
       this.promptContainer.setVisible(false);
     }
 
+    if (config.id === 'office') {
+      const objects = buildOfficeArchitecture(this);
+      this.roomObjects.push(...objects);
+      this.windowSprite = objects.find(obj => obj.name === 'office-panorama') as Phaser.GameObjects.Image;
+    } else {
     // 2. Spawn 8x8 Floor Tiles (clean subtle tint + central rug/zone)
     for (let gx = 0; gx < 8; gx++) {
       for (let gy = 0; gy < 8; gy++) {
@@ -193,9 +200,10 @@ export class OfficeScene extends Phaser.Scene {
         }
         const pos = gridToScreen(gx, gy);
         const tile = this.add.image(pos.x, pos.y, tileKey);
+        if (hdTextureKeys.has(tileKey)) tile.setScale(1 / HD_DENSITY);
         tile.setOrigin(0.5, 0.0);
         tile.setAlpha(config.id === 'office' ? 0.85 : 0.92);
-        tile.setDepth(getIsometricDepth(gx, gy, 0));
+        tile.setDepth(0);
         this.roomObjects.push(tile);
       }
     }
@@ -273,6 +281,7 @@ export class OfficeScene extends Phaser.Scene {
       const winPos = gridToScreen(0, 2.95);
       const winKey = `window_vesuvius_iso_${this.timePhase}`;
       this.windowSprite = this.add.image(winPos.x, winPos.y - 37, winKey);
+      this.windowSprite.setScale(1 / HD_DENSITY);
       this.windowSprite.setOrigin(0.5, 0.5);
       this.windowSprite.setDepth(4);
       this.roomObjects.push(this.windowSprite);
@@ -326,14 +335,40 @@ export class OfficeScene extends Phaser.Scene {
       this.roomObjects.push(pGfx);
     }
 
+    }
+
+    if (config.id !== 'office') {
+      const details = this.add.graphics().setDepth(4);
+      const vault = config.id === 'datacenter_vault';
+      // Recessed wall panels and continuous architectural task lighting.
+      for (let x = 0.5; x < 7.5; x += 1.35) {
+        const a = gridToScreen(x, 0), b = gridToScreen(x + 1.1, 0);
+        details.fillStyle(vault ? 0x1d3440 : 0x4b6268, 0.8);
+        details.fillPoints([{x:a.x,y:a.y-14},{x:b.x,y:b.y-14},{x:b.x,y:b.y-62},{x:a.x,y:a.y-62}],true);
+        details.lineStyle(1, 0x7b979f, 0.35);
+        details.lineBetween(a.x,a.y-62,b.x,b.y-62);
+        details.lineStyle(2,vault ? 0x9ad9e0 : 0xf0d7a9,0.8);
+        details.lineBetween(a.x,a.y-67,b.x,b.y-67);
+      }
+      this.roomObjects.push(details);
+      const lanes=this.add.graphics().setDepth(1);
+      for(const x of [2.1,4.9]) {
+        const a=gridToScreen(x,2),b=gridToScreen(x,6.5);
+        lanes.lineStyle(2,vault ? 0x71c2ce : 0xb6a579,0.5);
+        lanes.lineBetween(a.x,a.y,b.x,b.y);
+      }
+      this.roomObjects.push(lanes);
+    }
+
     // 4. Spawn Furniture & Equipment with ground shadows
     config.furniture.forEach((f) => {
-      const pos = gridToScreen(f.gridX, f.gridY);
+      const pos = this.projectPosition(f.gridX, f.gridY);
       const shadow = this.add.ellipse(pos.x, pos.y + 4, 44, 18, 0x020617, 0.35);
       shadow.setDepth(getIsometricDepth(f.gridX, f.gridY, 1));
       this.roomObjects.push(shadow);
 
       const sprite = this.add.sprite(pos.x, pos.y, f.textureKey, f.frame ?? 0);
+      if (hdTextureKeys.has(f.textureKey)) sprite.setScale(1 / HD_DENSITY);
       sprite.setOrigin(f.originX ?? 0.5, f.originY ?? 0.85);
       sprite.setDepth(getIsometricDepth(f.gridX, f.gridY, 5));
       if (f.animKey && this.anims.exists(f.animKey)) {
@@ -344,12 +379,13 @@ export class OfficeScene extends Phaser.Scene {
 
     // 5. Spawn NPCs with ground shadows
     config.npcs.forEach((npc) => {
-      const pos = gridToScreen(npc.gridX, npc.gridY);
+      const pos = this.projectPosition(npc.gridX, npc.gridY);
       const shadow = this.add.ellipse(pos.x, pos.y + 4, 28, 12, 0x020617, 0.4);
       shadow.setDepth(getIsometricDepth(npc.gridX, npc.gridY, 2));
       this.roomObjects.push(shadow);
 
       const sprite = this.add.sprite(pos.x, pos.y, npc.charKey, 0);
+      sprite.setScale(1 / 3);
       sprite.setOrigin(0.5, 0.85);
       sprite.setDepth(getIsometricDepth(npc.gridX, npc.gridY, 6));
       const idleAnim = `${npc.charKey}-idle-${npc.direction}`;
@@ -374,9 +410,10 @@ export class OfficeScene extends Phaser.Scene {
     this.playerGridY = spawnGy;
     this.playerDir = spawnDir;
 
-    const pPos = gridToScreen(this.playerGridX, this.playerGridY);
+    const pPos = this.projectPosition(this.playerGridX, this.playerGridY);
     if (!this.player) {
       this.player = this.add.sprite(pPos.x, pPos.y, 'protagonist', 0);
+      this.player.setScale(1 / 3);
       this.player.setOrigin(0.5, 0.85);
     } else {
       this.player.setPosition(pPos.x, pPos.y);
@@ -417,7 +454,13 @@ export class OfficeScene extends Phaser.Scene {
 
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
     const worldPt = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
-    const grid = screenToGrid(worldPt.x, worldPt.y);
+    let grid = screenToGrid(worldPt.x, worldPt.y);
+    if (this.currentRoomId === 'office') {
+      // Invert the elevated gallery projection by fixed-point refinement.
+      for (let i = 0; i < 8; i++) {
+        grid = screenToGrid(worldPt.x, worldPt.y + officeElevation(grid.gx, grid.gy));
+      }
+    }
     if (grid.gx >= 0.5 && grid.gx <= 7.2 && grid.gy >= 0.5 && grid.gy <= 7.2) {
       this.targetWaypoint = { gx: grid.gx, gy: grid.gy };
     }
@@ -552,7 +595,7 @@ export class OfficeScene extends Phaser.Scene {
     }
 
     // 4. Update player screen position and sorting depth
-    const screenPos = gridToScreen(this.playerGridX, this.playerGridY);
+    const screenPos = this.projectPosition(this.playerGridX, this.playerGridY);
     this.player.setPosition(screenPos.x, screenPos.y);
     this.player.setDepth(getIsometricDepth(this.playerGridX, this.playerGridY, 7));
 
@@ -611,6 +654,12 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
+  private projectPosition(gx: number, gy: number): { x: number; y: number } {
+    const p = gridToScreen(gx, gy);
+    if (this.currentRoomId === 'office') p.y -= officeElevation(gx, gy);
+    return p;
+  }
+
   private isCellWalkable(gx: number, gy: number, room: RoomConfig): boolean {
     if (gx < 0.3 || gx > 7.3 || gy < 0.3 || gy > 7.3) {
       return false;
@@ -624,7 +673,7 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private showPromptForSpot(spot: InteractiveSpotData): void {
-    const sPos = gridToScreen(spot.tileX, spot.tileY);
+    const sPos = this.projectPosition(spot.tileX, spot.tileY);
     this.promptContainer.setPosition(sPos.x, sPos.y - 60);
     this.promptIcon.setText('◆');
     this.promptText.setText(spot.actionText || spot.name);

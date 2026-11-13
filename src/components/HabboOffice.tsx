@@ -208,7 +208,7 @@ export const HabboOffice: React.FC<Props> = ({
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-slate-950 border-0 sm:border-4 border-slate-800 rounded-none sm:rounded-2xl shadow-2xl relative overflow-x-hidden select-none font-mono">
+    <div className="partenope-office flex flex-col min-h-screen bg-slate-950 border-0 sm:border-4 border-slate-800 rounded-none sm:rounded-2xl shadow-2xl relative overflow-x-hidden select-none font-mono">
       {/* Top Retro HUD Bar */}
       <header className="bg-slate-900/95 backdrop-blur border-b-2 border-slate-700/80 px-3 sm:px-4 py-2 flex items-center justify-between gap-2 z-20 sticky top-0">
         {/* Left: Player Profile & Quick Customizer */}
@@ -321,6 +321,11 @@ export const HabboOffice: React.FC<Props> = ({
         </div>
       </header>
 
+      <div className="studio-heading">
+        <div><span className="studio-eyebrow">HACK THE ROUTE · NAPOLI</span><h1>Fuori Rete<span>.</span></h1>
+        <p>Un ufficio sul Golfo. Una rete da rimettere in gioco.</p></div>
+        <div className="studio-status"><span /> {completedCount === 4 ? 'Rete ripristinata' : `${4 - completedCount} interventi in attesa`}<small>PARTENOPE · NETWORK STUDIO</small></div>
+      </div>
       {/* Main Isometric Room Container */}
       <main className="flex flex-col items-center justify-start p-2 sm:p-3 bg-[#0d121f]">
         {/* Room Title Header */}
@@ -329,10 +334,10 @@ export const HabboOffice: React.FC<Props> = ({
             <Compass className="w-3.5 h-3.5 text-cisco-blue" />
             <span className="text-white">
               {currentRoom === 'office' 
-                ? 'NETCORP CISCO ACADEMY // UFFICIO OPERATIVO (1F)' 
+                ? '01 / Ufficio panoramico'
                 : (currentRoom as string) === 'corridor'
-                ? 'NETCORP CISCO ACADEMY // CORRIDOIO OPERATIVO (1F)'
-                : 'NETCORP CYBER VAULT // UNDERGROUND DATACENTER (-1F)'}
+                ? '02 / Area operativa'
+                : '−01 / Datacenter'}
             </span>
           </div>
           <div className="flex items-center gap-2">

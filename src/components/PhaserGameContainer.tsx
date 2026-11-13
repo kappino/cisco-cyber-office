@@ -145,7 +145,7 @@ export const PhaserGameContainer: React.FC<Props> = ({
         id="phaser-game-container"
         ref={containerRef}
         className="w-full max-w-4xl h-auto block bg-slate-950 rounded-2xl border-4 border-slate-700/80 shadow-2xl overflow-hidden cursor-pointer select-none"
-        style={{ touchAction: 'manipulation' }}
+        style={{ touchAction: 'manipulation', aspectRatio: '42 / 23' }}
         title="Tocca il pavimento per muoverti o avvicinati a una postazione per interagire!"
       />
     </div>

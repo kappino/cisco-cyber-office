@@ -1,10 +1,14 @@
 import Phaser from 'phaser';
 
+export const HD_DENSITY = 3;
+export const hdTextureKeys = new Set<string>();
+
 function makeCanvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
+  c.width = w * HD_DENSITY;
+  c.height = h * HD_DENSITY;
   const ctx = c.getContext('2d')!;
+  ctx.scale(HD_DENSITY, HD_DENSITY);
   return [c, ctx];
 }
 
@@ -13,6 +17,7 @@ function replaceTexture(scene: Phaser.Scene, key: string, canvas: HTMLCanvasElem
     scene.textures.remove(key);
   }
   scene.textures.addCanvas(key, canvas);
+  hdTextureKeys.add(key);
 }
 
 function replaceSpritesheet(
@@ -26,9 +31,10 @@ function replaceSpritesheet(
     scene.textures.remove(key);
   }
   scene.textures.addSpriteSheet(key, canvas as unknown as HTMLImageElement, {
-    frameWidth,
-    frameHeight
+    frameWidth: frameWidth * HD_DENSITY,
+    frameHeight: frameHeight * HD_DENSITY
   });
+  hdTextureKeys.add(key);
 }
 
 function isoDiamondPath(ctx: CanvasRenderingContext2D, w: number, h: number): void {
@@ -340,99 +346,80 @@ export function registerCrispEnvironmentTextures(scene: Phaser.Scene): void {
     replaceSpritesheet(scene, 'furniture_bar_coffee_sheet', c, 80, 64);
   }
 
-  // 8. Door / Industrial Elevator Portal (64x80)
-  {
-    const [c, ctx] = makeCanvas(64, 80);
-    // Steel frame
-    ctx.fillStyle = '#334155';
-    ctx.fillRect(14, 14, 36, 60);
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(14, 14, 36, 60);
-
-    // Glass/Elevator doors with cyan glow
-    const dGrad = ctx.createLinearGradient(18, 18, 46, 70);
-    dGrad.addColorStop(0, '#0c4a6e');
-    dGrad.addColorStop(1, '#082f49');
-    ctx.fillStyle = dGrad;
-    ctx.fillRect(18, 18, 28, 54);
-    ctx.strokeStyle = '#7dd3fc';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(32, 18); ctx.lineTo(32, 72);
-    ctx.stroke();
-
-    // Top indicator LED bar
-    ctx.fillStyle = '#22d3ee';
-    ctx.fillRect(24, 10, 16, 4);
-    replaceTexture(scene, 'door_frame', c);
+  // Wall planes use the same +/- 1:2 slope as the room projection.
+  // Shearing the face preserves vertical jambs, unlike rotating a flat sprite.
+  for (const [key, slope] of [['door_frame', 0.5], ['door_frame_west', -0.5]] as const) {
+    const [c, ctx] = makeCanvas(64, 104);
+    ctx.save();
+    ctx.transform(1, slope, 0, 1, 0, 14 - slope * 32);
+    ctx.fillStyle = '#64777d'; ctx.fillRect(12, 8, 40, 68);
+    ctx.fillStyle = '#c0c7bd'; ctx.fillRect(14, 10, 36, 64);
+    const steel = ctx.createLinearGradient(18, 0, 46, 0);
+    steel.addColorStop(0, '#536c74'); steel.addColorStop(0.45, '#9aacac');
+    steel.addColorStop(0.5, '#536c74'); steel.addColorStop(1, '#849a9e');
+    ctx.fillStyle = steel; ctx.fillRect(18, 18, 28, 54);
+    ctx.strokeStyle = '#304a53'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(32, 18); ctx.lineTo(32, 72); ctx.stroke();
+    ctx.fillStyle = '#18363c'; ctx.fillRect(24, 11, 16, 4);
+    ctx.fillStyle = '#a8d3c3'; ctx.fillRect(30, 12, 4, 2);
+    ctx.fillStyle = '#d3d5c6'; ctx.fillRect(16, 72, 32, 2);
+    ctx.fillStyle = '#283e45'; ctx.fillRect(48, 40, 3, 7);
+    ctx.fillStyle = '#e8c995'; ctx.fillRect(49, 42, 1, 1);
+    ctx.restore();
+    replaceTexture(scene, key, c);
   }
 
-  // 9. Cisco Catalyst 9300 Switch Rack (2 frames: 64x80 -> 128x80)
-  {
-    const [c, ctx] = makeCanvas(128, 80);
+  // Dimensional equipment cabinets with glass doors, patch leads and rack rails.
+  for (const [key, height, units] of [
+    ['furniture_rack_sw1_sheet', 80, 6],
+    ['furniture_server_r1_sheet', 96, 8]
+  ] as const) {
+    const [c, ctx] = makeCanvas(128, height);
     for (let f = 0; f < 2; f++) {
-      const ox = f * 64;
-      ctx.fillStyle = '#1e293b';
-      ctx.fillRect(ox + 14, 10, 36, 64);
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(ox + 14, 10, 36, 64);
-
-      // Rack units & animated LEDs
-      for (let u = 0; u < 6; u++) {
-        const uy = 15 + u * 9;
-        ctx.fillStyle = '#0f172a';
-        ctx.fillRect(ox + 17, uy, 30, 7);
-        ctx.fillStyle = (u + f) % 2 === 0 ? '#22c55e' : '#38bdf8';
-        ctx.fillRect(ox + 19, uy + 2, 3, 3);
-        ctx.fillStyle = u === 2 ? '#f59e0b' : '#22c55e';
-        ctx.fillRect(ox + 24, uy + 2, 3, 3);
-        ctx.fillStyle = '#475569';
-        ctx.fillRect(ox + 30, uy + 2, 14, 3);
+      ctx.save(); ctx.translate(f * 64, 0);
+      const poly = (points:number[][], color:string) => {
+        ctx.fillStyle=color; ctx.beginPath(); points.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.closePath();ctx.fill();
+      };
+      const topLeft = 14 * 0.78 + 11 * 0.5 - 3;
+      const topRight = topLeft + 15;
+      const bottomRight = (height - 7) * 0.78 + 41 * 0.5 - 3;
+      poly([[11,topLeft],[24,topLeft-6.5],[54,topRight-6.5],[41,topRight]],'#71818c');
+      poly([[41,topRight],[54,topRight-6.5],[54,bottomRight-6.5],[41,bottomRight]],'#253944');
+      ctx.transform(1, 0.5, 0, 0.78, 0, -3);
+      const metal=ctx.createLinearGradient(11,0,41,0);
+      metal.addColorStop(0,'#344751');metal.addColorStop(.5,'#172b36');metal.addColorStop(1,'#3f5360');
+      ctx.fillStyle=metal;ctx.fillRect(11,14,30,height-21);
+      ctx.strokeStyle='#7f919a';ctx.lineWidth=.7;ctx.strokeRect(13,17,26,height-27);
+      for(let u=0;u<units;u++) {
+        const y=20+u*8;
+        ctx.fillStyle=u===1?'#839295':'#3a4e59';ctx.fillRect(16,y,20,6);
+        ctx.fillStyle='#0a1c25';
+        for(let port=0;port<6;port++) ctx.fillRect(18+port*2.7,y+1,1.7,2);
+        ctx.fillStyle=(u+f)%2?'#7fcba6':'#b3da9c';ctx.fillRect(17,y+4,1,1);
+        ctx.strokeStyle=u%2?'#b9a36d':'#5d9fa7';ctx.lineWidth=.6;
+        ctx.beginPath();ctx.moveTo(23,y+2);ctx.bezierCurveTo(38,y+2,35,y+11,29,y+10);ctx.stroke();
       }
+      ctx.fillStyle='rgba(167,210,224,.08)';ctx.fillRect(14,18,24,height-29);
+      ctx.strokeStyle='rgba(208,233,239,.28)';ctx.beginPath();ctx.moveTo(15,19);ctx.lineTo(34,height-16);ctx.stroke();
+      ctx.fillStyle='#a8b6b7';ctx.fillRect(37,42,1.5,9);
+      ctx.fillStyle='#182933';ctx.fillRect(13,height-8,5,3);ctx.fillRect(36,height-8,5,3);
+      ctx.restore();
     }
-    replaceSpritesheet(scene, 'furniture_rack_sw1_sheet', c, 64, 80);
+    replaceSpritesheet(scene,key,c,64,height);
   }
 
-  // 10. Datacenter 42U Server Rack (2 frames: 64x96 -> 128x96)
-  {
-    const [c, ctx] = makeCanvas(128, 96);
-    for (let f = 0; f < 2; f++) {
-      const ox = f * 64;
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(ox + 14, 8, 36, 82);
-      ctx.strokeStyle = '#06b6d4';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(ox + 14, 8, 36, 82);
-
-      for (let u = 0; u < 8; u++) {
-        const uy = 13 + u * 9;
-        ctx.fillStyle = '#1e293b';
-        ctx.fillRect(ox + 17, uy, 30, 7);
-        ctx.fillStyle = (u + f) % 2 === 0 ? '#22d3ee' : '#10b981';
-        ctx.fillRect(ox + 19, uy + 2, 4, 3);
-        ctx.fillStyle = u === 4 && f === 1 ? '#ef4444' : '#38bdf8';
-        ctx.fillRect(ox + 25, uy + 2, 4, 3);
-      }
-    }
-    replaceSpritesheet(scene, 'furniture_server_r1_sheet', c, 64, 96);
-  }
 }
 
 export function registerVesuviusWindows(scene: Phaser.Scene): void {
-  const sourceTex = scene.textures.get('vesuvius_panorama');
-  const sourceImg = sourceTex?.getSourceImage() as HTMLImageElement | HTMLCanvasElement | undefined;
-  if (!sourceImg) return;
 
   // Isometric West wall window: width 120px along slope -0.5, height 46px
-  const winW = 120;
-  const winH = 46;
-  const canvasW = 132;
-  const canvasH = 114;
+  const winW = 190;
+  const winH = 66;
+  const canvasW = 206;
+  const canvasH = 174;
 
   const phases: Array<{ key: string; overlay: string; frameColor: string }> = [
-    { key: 'window_vesuvius_iso_morning', overlay: 'rgba(125, 211, 252, 0.28)', frameColor: '#38bdf8' },
+    { key: 'window_vesuvius_iso_morning', overlay: 'rgba(125, 211, 252, 0.28)', frameColor: '#b8aa8c' },
     { key: 'window_vesuvius_iso_sunset', overlay: 'rgba(251, 146, 60, 0.14)', frameColor: '#f59e0b' },
     { key: 'window_vesuvius_iso_night', overlay: 'rgba(15, 23, 42, 0.52)', frameColor: '#6366f1' }
   ];
@@ -441,17 +428,18 @@ export function registerVesuviusWindows(scene: Phaser.Scene): void {
     const [c, ctx] = makeCanvas(canvasW, canvasH);
     ctx.save();
     // Map rectangle (0..winW, 0..winH) onto isometric West wall (slope dy/dx = -0.5)
-    ctx.transform(1, -0.5, 0, 1, 6, 64);
+    ctx.transform(1, -0.5, 0, 1, 8, 102);
 
     // Outer metallic frame
-    ctx.fillStyle = '#0f172a';
+    ctx.fillStyle = '#646d66';
     ctx.fillRect(-3, -3, winW + 6, winH + 6);
     ctx.strokeStyle = frameColor;
     ctx.lineWidth = 1.5;
     ctx.strokeRect(-3, -3, winW + 6, winH + 6);
 
     // Scenic Vesuvius panorama inside window
-    ctx.drawImage(sourceImg, 0, 0, winW, winH);
+    const gulf = scene.textures.get('gulf-naples-hd').getSourceImage() as HTMLImageElement;
+    ctx.drawImage(gulf, 0, 0, winW, winH);
     ctx.fillStyle = overlay;
     ctx.fillRect(0, 0, winW, winH);
 

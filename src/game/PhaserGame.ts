@@ -2,8 +2,8 @@ import Phaser from 'phaser';
 import { BootScene } from './scenes/BootScene';
 import { OfficeScene } from './scenes/OfficeScene';
 
-export const GAME_WIDTH = 840;
-export const GAME_HEIGHT = 390;
+export const GAME_WIDTH = 1680;
+export const GAME_HEIGHT = 920;
 
 export function createPhaserGame(parent: HTMLElement | string): Phaser.Game {
   const config: Phaser.Types.Core.GameConfig = {
@@ -11,16 +11,16 @@ export function createPhaserGame(parent: HTMLElement | string): Phaser.Game {
     parent,
     width: GAME_WIDTH,
     height: GAME_HEIGHT,
-    backgroundColor: '#0d121f',
-    pixelArt: true,
-    roundPixels: true,
+    backgroundColor: '#192f3a',
+    pixelArt: false,
+    roundPixels: false,
     loader: {
       imageLoadType: 'HTMLImageElement'
     },
     render: {
       preserveDrawingBuffer: true,
-      antialias: false,
-      pixelArt: true
+      antialias: true,
+      pixelArt: false
     },
     scale: {
       mode: Phaser.Scale.FIT,

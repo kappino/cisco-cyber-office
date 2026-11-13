@@ -57,7 +57,7 @@ export const ROOM_CONFIGS: Record<string, RoomConfig> = {
   office: {
     id: 'office',
     name: 'UFFICIO OPERATIVO (1F)',
-    subtitle: 'NETCORP CISCO ACADEMY // ENTRANCE & OPEN SPACE',
+    subtitle: 'PARTENOPE // STUDIO RETI SUL GOLFO',
     floorTexture: 'tile_parquet',
     hasWindow: true,
     windowGridY: 2.5,
@@ -66,10 +66,10 @@ export const ROOM_CONFIGS: Record<string, RoomConfig> = {
       [1, 1, 1, 1, 1, 1, 1, 1], // gx = 0: West wall bounds
       [1, 0, 0, 0, 0, 1, 1, 1], // gx = 1: Bar Napoletano (gy=5,6)
       [1, 0, 0, 0, 0, 0, 0, 1], // gx = 2: open aisle
-      [1, 1, 0, 0, 0, 0, 0, 1], // gx = 3: Rosaria Desk (gy=1)
-      [1, 0, 0, 0, 0, 0, 0, 1], // gx = 4: open aisle
-      [1, 0, 0, 0, 0, 0, 0, 1], // gx = 5: open floor
-      [1, 0, 0, 0, 0, 0, 0, 1], // gx = 6: elevator access
+      [1, 1, 0, 0, 0, 0, 1, 1], // gx = 3: mentor desk and lounge
+      [1, 1, 0, 0, 0, 0, 1, 1], // gx = 4: work desk and lounge
+      [1, 1, 0, 0, 0, 0, 1, 1], // gx = 5: work desk and lounge
+      [1, 0, 0, 0, 0, 0, 1, 1], // gx = 6: inset foreground corner
       [1, 1, 1, 0, 0, 1, 1, 1], // gx = 7: doorway to corridor at gy=3,4
     ],
     furniture: [
@@ -96,15 +96,6 @@ export const ROOM_CONFIGS: Record<string, RoomConfig> = {
         gridX: 3.0,
         gridY: 1.0,
         textureKey: 'furniture_desk',
-        originX: 0.5,
-        originY: 0.85,
-        isSolid: true
-      },
-      {
-        id: 'monstera_plant',
-        gridX: 0.8,
-        gridY: 6.8,
-        textureKey: 'furniture_monstera',
         originX: 0.5,
         originY: 0.85,
         isSolid: true
@@ -253,7 +244,7 @@ export const ROOM_CONFIGS: Record<string, RoomConfig> = {
         id: 'door_back_frame',
         gridX: 0.2,
         gridY: 3.5,
-        textureKey: 'door_frame',
+        textureKey: 'door_frame_west',
         originX: 0.5,
         originY: 0.85
       },

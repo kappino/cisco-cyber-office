@@ -1,3 +1,4 @@
+import { registerCharacterTextures } from '../utils/characterTextures';
 import Phaser from 'phaser';
 import { registerCrispEnvironmentTextures, registerVesuviusWindows } from '../utils/hdTextures';
 
@@ -7,6 +8,7 @@ export class BootScene extends Phaser.Scene {
   }
 
   preload(): void {
+    this.load.image('gulf-naples-hd', '/assets/environment/gulf-naples-hd.png');
     // 1. Character Spritesheets (160x256 px, 4 rows x 5 cols, 32x64 frame size)
     this.load.spritesheet('protagonist', '/assets/characters/protagonist_spritesheet.png', {
       frameWidth: 32,
@@ -56,7 +58,6 @@ export class BootScene extends Phaser.Scene {
     });
 
     // 6. Panoramic Vesuvius Windows & Scenic Backdrop
-    this.load.image('vesuvius_panorama', '/assets/environment/vesuvius_panorama.jpg');
     this.load.image('window_vesuvius_iso_morning', '/assets/environment/window_vesuvius_iso_morning.png');
     this.load.image('window_vesuvius_iso_sunset', '/assets/environment/window_vesuvius_iso_sunset.png');
     this.load.image('window_vesuvius_iso_night', '/assets/environment/window_vesuvius_iso_night.png');
@@ -65,6 +66,7 @@ export class BootScene extends Phaser.Scene {
   create(): void {
     // Upgrade environment & furniture textures to crisp HD vector-canvas sprites
     registerCrispEnvironmentTextures(this);
+    registerCharacterTextures(this);
     registerVesuviusWindows(this);
 
     const characters = ['protagonist', 'rosaria', 'ciro', 'marco'];
