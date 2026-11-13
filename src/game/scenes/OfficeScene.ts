@@ -1,0 +1,633 @@
+import Phaser from 'phaser';
+import { EventBus, InteractiveSpotData, TimePhase } from '../EventBus';
+import {
+  gridToScreen,
+  screenToGrid,
+  getIsometricDepth,
+  getDirectionFromVector,
+  Direction
+} from '../utils/isoMath';
+import { ROOM_CONFIGS, RoomConfig } from '../data/roomData';
+
+export class OfficeScene extends Phaser.Scene {
+  // Player state
+  private player!: Phaser.GameObjects.Sprite;
+  private playerGridX: number = 3.5;
+  private playerGridY: number = 4.5;
+  private playerDir: Direction = 'SE';
+  private isWalking: boolean = false;
+  private baseSpeed: number = 5.0; // responsive grid units per second
+  private speedMultiplier: number = 1.0;
+  private caffeineTimer: number = 0;
+
+  // Navigation & Input state
+  private targetWaypoint: { gx: number; gy: number; spotId?: string } | null = null;
+  private currentRoomId: string = 'office';
+  private activeSpot: InteractiveSpotData | null = null;
+  private timePhase: TimePhase = 'sunset';
+
+  // Keyboard controls
+  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
+  private wasdKeys!: {
+    W: Phaser.Input.Keyboard.Key;
+    A: Phaser.Input.Keyboard.Key;
+    S: Phaser.Input.Keyboard.Key;
+    D: Phaser.Input.Keyboard.Key;
+    SPACE: Phaser.Input.Keyboard.Key;
+    ENTER: Phaser.Input.Keyboard.Key;
+  };
+
+  // Rendering containers & groups
+  private roomObjects: Phaser.GameObjects.GameObject[] = [];
+  private promptContainer!: Phaser.GameObjects.Container;
+  private promptText!: Phaser.GameObjects.Text;
+  private promptIcon!: Phaser.GameObjects.Text;
+  private windowSprite: Phaser.GameObjects.Image | null = null;
+
+  constructor() {
+    super('OfficeScene');
+  }
+
+  create(): void {
+    // 1. Setup keyboard controls
+    if (this.input.keyboard) {
+      this.cursors = this.input.keyboard.createCursorKeys();
+      this.wasdKeys = this.input.keyboard.addKeys('W,A,S,D,SPACE,ENTER') as typeof this.wasdKeys;
+    }
+
+    // 2. Setup touch / mouse click-to-move
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      this.handlePointerDown(pointer);
+    });
+
+    // 3. Setup Action Prompt HUD indicator in world space
+    this.setupActionPrompt();
+
+    // 4. Register EventBus listeners
+    this.registerEventBusListeners();
+
+    // 5. Build initial room (Room 1 Entrance / Office)
+    this.buildRoom(this.currentRoomId, 'init');
+
+    // Frame isometric room tightly inside canvas
+    this.cameras.main.centerOn(420, 246);
+    this.cameras.main.setZoom(1.2);
+
+    // 6. Signal scene ready
+    EventBus.emit('SCENE_READY', 'OfficeScene');
+  }
+
+  private setupActionPrompt(): void {
+    this.promptContainer = this.add.container(0, 0);
+    this.promptContainer.setDepth(2000);
+    this.promptContainer.setVisible(false);
+
+    const bg = this.add.rectangle(0, 0, 180, 32, 0x0f172a, 0.92);
+    bg.setStrokeStyle(2, 0xf59e0b);
+
+    this.promptIcon = this.add.text(-76, -8, '◆', { fontSize: '13px', color: '#fbbf24' });
+    this.promptText = this.add.text(-56, -7, '', {
+      fontSize: '10px',
+      color: '#fef08a',
+      fontStyle: 'bold',
+      fontFamily: 'monospace'
+    });
+
+    this.promptContainer.add([bg, this.promptIcon, this.promptText]);
+  }
+
+  private registerEventBusListeners(): void {
+    const handleNavigateTo = (data: { tileX?: number; tileY?: number; spotId?: string }) => {
+      if (data.spotId) {
+        let room = ROOM_CONFIGS[this.currentRoomId];
+        let spot = room.spots.find((s) => s.id === data.spotId);
+
+        // If spot is not in current room, switch to the room containing it
+        if (!spot) {
+          for (const [rId, rConfig] of Object.entries(ROOM_CONFIGS)) {
+            const found = rConfig.spots.find((s) => s.id === data.spotId);
+            if (found) {
+              this.buildRoom(rId, 'direct');
+              room = rConfig;
+              spot = found;
+              break;
+            }
+          }
+        }
+
+        if (spot) {
+          this.targetWaypoint = {
+            gx: spot.interactX,
+            gy: spot.interactY,
+            spotId: data.spotId
+          };
+          return;
+        }
+      }
+
+      if (typeof data.tileX === 'number' && typeof data.tileY === 'number') {
+        this.targetWaypoint = { gx: data.tileX, gy: data.tileY, spotId: data.spotId };
+      }
+    };
+
+    const handleChangeRoom = (roomId: string) => {
+      if (ROOM_CONFIGS[roomId] && roomId !== this.currentRoomId) {
+        this.buildRoom(roomId, 'direct');
+      }
+    };
+
+    const handleSetTimePhase = (phase: TimePhase) => {
+      this.timePhase = phase;
+      this.updateLightingAndWindow();
+    };
+
+    const handleTriggerCelebration = () => {
+      this.celebrateSuccess();
+    };
+
+    const handleTriggerCoffeeBoost = () => {
+      this.caffeineTimer = 8.0; // 8 seconds speed boost
+      this.speedMultiplier = 1.6;
+    };
+
+    EventBus.on('NAVIGATE_TO', handleNavigateTo);
+    EventBus.on('CHANGE_ROOM', handleChangeRoom);
+    EventBus.on('SET_TIME_PHASE', handleSetTimePhase);
+    EventBus.on('TRIGGER_CELEBRATION', handleTriggerCelebration);
+    EventBus.on('TRIGGER_COFFEE_BOOST', handleTriggerCoffeeBoost);
+
+    this.events.once('shutdown', () => {
+      EventBus.off('NAVIGATE_TO', handleNavigateTo);
+      EventBus.off('CHANGE_ROOM', handleChangeRoom);
+      EventBus.off('SET_TIME_PHASE', handleSetTimePhase);
+      EventBus.off('TRIGGER_CELEBRATION', handleTriggerCelebration);
+      EventBus.off('TRIGGER_COFFEE_BOOST', handleTriggerCoffeeBoost);
+    });
+  }
+
+  public buildRoom(
+    roomId: string,
+    spawnMode: 'init' | 'door' | 'elevator' | 'direct' = 'direct'
+  ): void {
+    const config: RoomConfig = ROOM_CONFIGS[roomId] || ROOM_CONFIGS.office;
+    this.currentRoomId = config.id;
+
+    // 1. Clear previous room objects
+    this.roomObjects.forEach((obj) => obj.destroy());
+    this.roomObjects = [];
+    this.windowSprite = null;
+    this.activeSpot = null;
+    this.targetWaypoint = null;
+    if (this.promptContainer) {
+      this.promptContainer.setVisible(false);
+    }
+
+    // 2. Spawn 8x8 Floor Tiles (clean subtle tint + central rug/zone)
+    for (let gx = 0; gx < 8; gx++) {
+      for (let gy = 0; gy < 8; gy++) {
+        let tileKey = config.floorTexture;
+        if (config.id === 'datacenter_vault') {
+          if (gx >= 2 && gx <= 4 && gy >= 2 && gy <= 4) {
+            tileKey = 'tile_server_grill';
+          }
+        }
+        const pos = gridToScreen(gx, gy);
+        const tile = this.add.image(pos.x, pos.y, tileKey);
+        tile.setOrigin(0.5, 0.0);
+        tile.setAlpha(config.id === 'office' ? 0.85 : 0.92);
+        tile.setDepth(getIsometricDepth(gx, gy, 0));
+        this.roomObjects.push(tile);
+      }
+    }
+
+    // Floor edge trim + central decorative rug/zone
+    const floorGfx = this.add.graphics();
+    floorGfx.setDepth(2);
+    const cTop = gridToScreen(0, 0);
+    const cRight = gridToScreen(8, 0);
+    const cBottom = gridToScreen(8, 8);
+    const cLeft = gridToScreen(0, 8);
+    floorGfx.lineStyle(2, 0x1e293b, 0.9);
+    floorGfx.strokePoints([cTop, cRight, cBottom, cLeft, cTop]);
+
+    const rT = gridToScreen(2.2, 2.2);
+    const rR = gridToScreen(5.8, 2.2);
+    const rB = gridToScreen(5.8, 5.8);
+    const rL = gridToScreen(2.2, 5.8);
+    const rugFill = config.id === 'office' ? 0x1e3a5f : config.id === 'corridor' ? 0x0f2942 : 0x082f49;
+    const rugBorder = config.id === 'office' ? 0x38bdf8 : config.id === 'corridor' ? 0x22d3ee : 0x06b6d4;
+    floorGfx.fillStyle(rugFill, 0.55);
+    floorGfx.fillPoints([rT, rR, rB, rL], true);
+    floorGfx.lineStyle(2, rugBorder, 0.75);
+    floorGfx.strokePoints([rT, rR, rB, rL, rT]);
+    this.roomObjects.push(floorGfx);
+
+    // 3. Continuous Gap-Free Isometric Walls
+    const wallH = 74;
+    const wallGfx = this.add.graphics();
+    wallGfx.setDepth(3);
+
+    const westColor = config.id === 'office' ? 0x334155 : config.id === 'corridor' ? 0x1e293b : 0x0f172a;
+    const northColor = config.id === 'office' ? 0x475569 : config.id === 'corridor' ? 0x334155 : 0x1e293b;
+    const trimColor = config.id === 'datacenter_vault' ? 0x0ea5e9 : 0x38bdf8;
+
+    const drawWallSegment = (
+      x1: number,
+      y1: number,
+      x2: number,
+      y2: number,
+      fillColor: number
+    ) => {
+      const p1 = gridToScreen(x1, y1);
+      const p2 = gridToScreen(x2, y2);
+      wallGfx.fillStyle(fillColor, 1);
+      wallGfx.fillPoints(
+        [
+          { x: p1.x, y: p1.y },
+          { x: p2.x, y: p2.y },
+          { x: p2.x, y: p2.y - wallH },
+          { x: p1.x, y: p1.y - wallH }
+        ],
+        true
+      );
+      // Baseboard & top cyan/slate accent trim
+      wallGfx.lineStyle(3, 0x0f172a, 0.9);
+      wallGfx.lineBetween(p1.x, p1.y - 2, p2.x, p2.y - 2);
+      wallGfx.lineStyle(2, trimColor, 0.85);
+      wallGfx.lineBetween(p1.x, p1.y - wallH, p2.x, p2.y - wallH);
+    };
+
+    // West wall (gx = 0)
+    if (config.id === 'corridor') {
+      drawWallSegment(0, 0, 0, 3, westColor);
+      drawWallSegment(0, 5, 0, 8, westColor);
+    } else {
+      drawWallSegment(0, 0, 0, 8, westColor);
+    }
+    // North wall (gy = 0)
+    drawWallSegment(0, 0, 8, 0, northColor);
+    this.roomObjects.push(wallGfx);
+
+    // Panoramic Vesuvius Window (flush with West wall)
+    if (config.hasWindow && config.windowGridY !== undefined) {
+      const winPos = gridToScreen(0, 2.95);
+      const winKey = `window_vesuvius_iso_${this.timePhase}`;
+      this.windowSprite = this.add.image(winPos.x, winPos.y - 37, winKey);
+      this.windowSprite.setOrigin(0.5, 0.5);
+      this.windowSprite.setDepth(4);
+      this.roomObjects.push(this.windowSprite);
+
+      // Subtle sunlight beam cast onto parquet floor
+      const beam = this.add.graphics();
+      beam.setDepth(2);
+      const b1 = gridToScreen(0.2, 1.3);
+      const b2 = gridToScreen(0.2, 4.6);
+      const b3 = gridToScreen(2.6, 4.6);
+      const b4 = gridToScreen(2.6, 1.3);
+      beam.fillStyle(0xfef08a, this.timePhase === 'night' ? 0.04 : 0.12);
+      beam.fillPoints([b1, b2, b3, b4], true);
+      this.roomObjects.push(beam);
+    }
+
+    // North wall decorative tech posters / status panel
+    {
+      const pGfx = this.add.graphics();
+      pGfx.setDepth(4);
+      const p1 = gridToScreen(2.0, 0);
+      const p2 = gridToScreen(3.3, 0);
+      pGfx.fillStyle(0x0f172a, 0.95);
+      pGfx.fillPoints(
+        [
+          { x: p1.x, y: p1.y - 24 },
+          { x: p2.x, y: p2.y - 24 },
+          { x: p2.x, y: p2.y - 54 },
+          { x: p1.x, y: p1.y - 54 }
+        ],
+        true
+      );
+      pGfx.lineStyle(1.5, 0x38bdf8, 0.9);
+      pGfx.strokePoints([
+        { x: p1.x, y: p1.y - 24 },
+        { x: p2.x, y: p2.y - 24 },
+        { x: p2.x, y: p2.y - 54 },
+        { x: p1.x, y: p1.y - 54 },
+        { x: p1.x, y: p1.y - 24 }
+      ]);
+      // Telemetry bars inside North wall monitor
+      const barColors = [0x22d3ee, 0x34d399, 0xf59e0b, 0x38bdf8];
+      for (let i = 0; i < 4; i++) {
+        const t = 0.18 + i * 0.2;
+        const bx = p1.x + (p2.x - p1.x) * t;
+        const by = p1.y + (p2.y - p1.y) * t - 28;
+        const bh = 8 + (i % 3) * 5;
+        pGfx.lineStyle(3, barColors[i], 0.9);
+        pGfx.lineBetween(bx, by, bx, by - bh);
+      }
+      this.roomObjects.push(pGfx);
+    }
+
+    // 4. Spawn Furniture & Equipment with ground shadows
+    config.furniture.forEach((f) => {
+      const pos = gridToScreen(f.gridX, f.gridY);
+      const shadow = this.add.ellipse(pos.x, pos.y + 4, 44, 18, 0x020617, 0.35);
+      shadow.setDepth(getIsometricDepth(f.gridX, f.gridY, 1));
+      this.roomObjects.push(shadow);
+
+      const sprite = this.add.sprite(pos.x, pos.y, f.textureKey, f.frame ?? 0);
+      sprite.setOrigin(f.originX ?? 0.5, f.originY ?? 0.85);
+      sprite.setDepth(getIsometricDepth(f.gridX, f.gridY, 5));
+      if (f.animKey && this.anims.exists(f.animKey)) {
+        sprite.play(f.animKey);
+      }
+      this.roomObjects.push(sprite);
+    });
+
+    // 5. Spawn NPCs with ground shadows
+    config.npcs.forEach((npc) => {
+      const pos = gridToScreen(npc.gridX, npc.gridY);
+      const shadow = this.add.ellipse(pos.x, pos.y + 4, 28, 12, 0x020617, 0.4);
+      shadow.setDepth(getIsometricDepth(npc.gridX, npc.gridY, 2));
+      this.roomObjects.push(shadow);
+
+      const sprite = this.add.sprite(pos.x, pos.y, npc.charKey, 0);
+      sprite.setOrigin(0.5, 0.85);
+      sprite.setDepth(getIsometricDepth(npc.gridX, npc.gridY, 6));
+      const idleAnim = `${npc.charKey}-idle-${npc.direction}`;
+      if (this.anims.exists(idleAnim)) {
+        sprite.play(idleAnim);
+      }
+      this.roomObjects.push(sprite);
+    });
+
+    // 6. Spawn or Reposition Player
+    let spawnGx = config.defaultSpawn.gx;
+    let spawnGy = config.defaultSpawn.gy;
+    let spawnDir = config.defaultSpawn.dir;
+
+    if (spawnMode === 'elevator') {
+      spawnGx = 5.8;
+      spawnGy = 1.4;
+      spawnDir = 'SW';
+    }
+
+    this.playerGridX = spawnGx;
+    this.playerGridY = spawnGy;
+    this.playerDir = spawnDir;
+
+    const pPos = gridToScreen(this.playerGridX, this.playerGridY);
+    if (!this.player) {
+      this.player = this.add.sprite(pPos.x, pPos.y, 'protagonist', 0);
+      this.player.setOrigin(0.5, 0.85);
+    } else {
+      this.player.setPosition(pPos.x, pPos.y);
+    }
+    this.player.setDepth(getIsometricDepth(this.playerGridX, this.playerGridY, 7));
+    this.player.play(`protagonist-idle-${this.playerDir}`);
+
+    // 7. Apply Room Lighting & Camera Fade-in
+    this.updateLightingAndWindow();
+    this.cameras.main.fadeIn(200, 13, 18, 31);
+
+    // 8. Emit room change event
+    EventBus.emit('ROOM_CHANGED', config.id);
+  }
+
+  private updateLightingAndWindow(): void {
+    if (this.windowSprite && this.textures.exists(`window_vesuvius_iso_${this.timePhase}`)) {
+      this.windowSprite.setTexture(`window_vesuvius_iso_${this.timePhase}`);
+    }
+
+    let tintColor = 0xffffff;
+    if (this.timePhase === 'sunset') {
+      tintColor = 0xffdfb8;
+    } else if (this.timePhase === 'night') {
+      tintColor = 0x90a4d4;
+    }
+
+    this.roomObjects.forEach((obj) => {
+      if ('setTint' in obj) {
+        (obj as Phaser.GameObjects.Sprite).setTint(tintColor);
+      }
+    });
+
+    if (this.player) {
+      this.player.setTint(tintColor);
+    }
+  }
+
+  private handlePointerDown(pointer: Phaser.Input.Pointer): void {
+    const worldPt = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const grid = screenToGrid(worldPt.x, worldPt.y);
+    if (grid.gx >= 0.5 && grid.gx <= 7.2 && grid.gy >= 0.5 && grid.gy <= 7.2) {
+      this.targetWaypoint = { gx: grid.gx, gy: grid.gy };
+    }
+  }
+
+  private celebrateSuccess(): void {
+    if (!this.player) return;
+    this.tweens.add({
+      targets: this.player,
+      y: this.player.y - 24,
+      duration: 180,
+      yoyo: true,
+      repeat: 2,
+      ease: 'Quad.easeOut'
+    });
+  }
+
+  update(_time: number, delta: number): void {
+    const dt = delta / 1000;
+
+    // 1. Decay caffeine speed boost timer
+    if (this.caffeineTimer > 0) {
+      this.caffeineTimer -= dt;
+      if (this.caffeineTimer <= 0) {
+        this.speedMultiplier = 1.0;
+      }
+    }
+
+    // 2. Evaluate movement inputs (WASD / Arrows vs Waypoint)
+    let moveGx = 0;
+    let moveGy = 0;
+    let inputActive = false;
+
+    if (this.wasdKeys && this.cursors) {
+      const up = this.wasdKeys.W.isDown || this.cursors.up.isDown;
+      const down = this.wasdKeys.S.isDown || this.cursors.down.isDown;
+      const left = this.wasdKeys.A.isDown || this.cursors.left.isDown;
+      const right = this.wasdKeys.D.isDown || this.cursors.right.isDown;
+
+      // Screen Up: (-1, -1)
+      if (up) {
+        moveGx -= 1;
+        moveGy -= 1;
+        inputActive = true;
+      }
+      // Screen Down: (+1, +1)
+      if (down) {
+        moveGx += 1;
+        moveGy += 1;
+        inputActive = true;
+      }
+      // Screen Left: (-1, +1)
+      if (left) {
+        moveGx -= 1;
+        moveGy += 1;
+        inputActive = true;
+      }
+      // Screen Right: (+1, -1)
+      if (right) {
+        moveGx += 1;
+        moveGy -= 1;
+        inputActive = true;
+      }
+
+      if (inputActive) {
+        this.targetWaypoint = null; // Keyboard overrides path waypoint
+      }
+    }
+
+    // Follow click waypoint if active
+    if (!inputActive && this.targetWaypoint) {
+      const dx = this.targetWaypoint.gx - this.playerGridX;
+      const dy = this.targetWaypoint.gy - this.playerGridY;
+      const dist = Math.hypot(dx, dy);
+
+      if (dist <= 0.2) {
+        const finishedWaypoint = this.targetWaypoint;
+        this.targetWaypoint = null;
+        if (finishedWaypoint.spotId) {
+          const room = ROOM_CONFIGS[this.currentRoomId];
+          const spot = room.spots.find((s) => s.id === finishedWaypoint.spotId);
+          if (spot) {
+            this.activeSpot = spot;
+            this.showPromptForSpot(spot);
+            EventBus.emit('SPOT_ENTER', spot);
+          }
+          EventBus.emit('SPOT_INTERACT', finishedWaypoint.spotId);
+        }
+      } else {
+        moveGx = dx / dist;
+        moveGy = dy / dist;
+        inputActive = true;
+      }
+    }
+
+    // 3. Movement integration with obstacle collision sliding
+    const room = ROOM_CONFIGS[this.currentRoomId];
+    if (inputActive) {
+      const len = Math.hypot(moveGx, moveGy);
+      if (len > 0) {
+        moveGx /= len;
+        moveGy /= len;
+      }
+
+      const rawStep = this.baseSpeed * this.speedMultiplier * dt;
+      const step = this.targetWaypoint
+        ? Math.min(rawStep, Math.hypot(this.targetWaypoint.gx - this.playerGridX, this.targetWaypoint.gy - this.playerGridY))
+        : rawStep;
+      const candidateX = this.playerGridX + moveGx * step;
+      const candidateY = this.playerGridY + moveGy * step;
+
+      // Slide resolution: test X and Y independently
+      if (this.isCellWalkable(candidateX, this.playerGridY, room)) {
+        this.playerGridX = candidateX;
+      }
+      if (this.isCellWalkable(this.playerGridX, candidateY, room)) {
+        this.playerGridY = candidateY;
+      }
+
+      // Update orientation and walk animation
+      this.playerDir = getDirectionFromVector(moveGx, moveGy, this.playerDir);
+      const walkAnim = `protagonist-walk-${this.playerDir}`;
+      if (!this.isWalking || this.player.anims.currentAnim?.key !== walkAnim) {
+        this.player.play(walkAnim, true);
+        this.isWalking = true;
+      }
+    } else {
+      if (this.isWalking) {
+        this.isWalking = false;
+        this.player.play(`protagonist-idle-${this.playerDir}`);
+      }
+    }
+
+    // 4. Update player screen position and sorting depth
+    const screenPos = gridToScreen(this.playerGridX, this.playerGridY);
+    this.player.setPosition(screenPos.x, screenPos.y);
+    this.player.setDepth(getIsometricDepth(this.playerGridX, this.playerGridY, 7));
+
+    EventBus.emit('PLAYER_MOVED', {
+      x: screenPos.x,
+      y: screenPos.y,
+      gridX: this.playerGridX,
+      gridY: this.playerGridY
+    });
+
+    // 5. Check doorway threshold transitions
+    for (const t of room.thresholds) {
+      if (
+        this.playerGridX >= t.minGx &&
+        this.playerGridX <= t.maxGx &&
+        this.playerGridY >= t.minGy &&
+        this.playerGridY <= t.maxGy
+      ) {
+        this.buildRoom(t.targetRoom, 'door');
+        return;
+      }
+    }
+
+    // 6. Proximity detection to interactive spots
+    let nearestSpot: InteractiveSpotData | null = null;
+    let minDistance = 1.6;
+
+    for (const spot of room.spots) {
+      const d = Math.hypot(
+        this.playerGridX - spot.interactX,
+        this.playerGridY - spot.interactY
+      );
+      if (d < minDistance) {
+        minDistance = d;
+        nearestSpot = spot;
+      }
+    }
+
+    if (nearestSpot && nearestSpot !== this.activeSpot) {
+      this.activeSpot = nearestSpot;
+      this.showPromptForSpot(nearestSpot);
+      EventBus.emit('SPOT_ENTER', nearestSpot);
+    } else if (!nearestSpot && this.activeSpot) {
+      this.activeSpot = null;
+      this.promptContainer.setVisible(false);
+      EventBus.emit('SPOT_LEAVE');
+    }
+
+    // 7. Spacebar / Enter interaction trigger
+    if (this.wasdKeys) {
+      const spacePressed = Phaser.Input.Keyboard.JustDown(this.wasdKeys.SPACE);
+      const enterPressed = Phaser.Input.Keyboard.JustDown(this.wasdKeys.ENTER);
+      if ((spacePressed || enterPressed) && this.activeSpot) {
+        EventBus.emit('SPOT_INTERACT', this.activeSpot.id);
+      }
+    }
+  }
+
+  private isCellWalkable(gx: number, gy: number, room: RoomConfig): boolean {
+    if (gx < 0.3 || gx > 7.3 || gy < 0.3 || gy > 7.3) {
+      return false;
+    }
+    const cellX = Math.floor(gx);
+    const cellY = Math.floor(gy);
+    if (cellX >= 0 && cellX < 8 && cellY >= 0 && cellY < 8) {
+      return room.solidGrid[cellX][cellY] === 0;
+    }
+    return true;
+  }
+
+  private showPromptForSpot(spot: InteractiveSpotData): void {
+    const sPos = gridToScreen(spot.tileX, spot.tileY);
+    this.promptContainer.setPosition(sPos.x, sPos.y - 60);
+    this.promptIcon.setText('◆');
+    this.promptText.setText(spot.actionText || spot.name);
+    this.promptContainer.setVisible(true);
+  }
+}

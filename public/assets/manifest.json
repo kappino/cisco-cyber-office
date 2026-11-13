@@ -1,0 +1,675 @@
+{
+  "version": "1.0.0",
+  "name": "Fuori Rete: Crisis at Cisco Naples \u2014 Local Asset Manifest",
+  "palette": [
+    "#00bceb",
+    "#0284c7",
+    "#0369a1",
+    "#0d274d",
+    "#0f172a",
+    "#020617",
+    "#ffffff",
+    "#cbd5e1",
+    "#10b981",
+    "#f59e0b",
+    "#ef4444",
+    "#b45309",
+    "#92400e",
+    "#7c2d12",
+    "#9a3412",
+    "#fef08a"
+  ],
+  "characters": {
+    "protagonist": "/assets/characters/protagonist_spritesheet.png",
+    "rosaria": "/assets/characters/rosaria_spritesheet.png",
+    "ciro": "/assets/characters/ciro_spritesheet.png",
+    "marco": "/assets/characters/marco_spritesheet.png"
+  },
+  "portraits": {
+    "protagonist": {
+      "neutral": "/assets/portraits/protagonist_neutral.png",
+      "tense": "/assets/portraits/protagonist_tense.png",
+      "satisfied": "/assets/portraits/protagonist_satisfied.png"
+    },
+    "rosaria": {
+      "neutral": "/assets/portraits/rosaria_neutral.png",
+      "tense": "/assets/portraits/rosaria_tense.png",
+      "satisfied": "/assets/portraits/rosaria_satisfied.png"
+    },
+    "ciro": {
+      "neutral": "/assets/portraits/ciro_neutral.png",
+      "tense": "/assets/portraits/ciro_tense.png",
+      "satisfied": "/assets/portraits/ciro_satisfied.png"
+    },
+    "marco": {
+      "neutral": "/assets/portraits/marco_neutral.png",
+      "tense": "/assets/portraits/marco_tense.png",
+      "satisfied": "/assets/portraits/marco_satisfied.png"
+    },
+    "secbot": {
+      "neutral": "/assets/portraits/secbot_neutral.png",
+      "tense": "/assets/portraits/secbot_tense.png",
+      "satisfied": "/assets/portraits/secbot_satisfied.png"
+    }
+  },
+  "environment": {
+    "vesuvius_morning": "/assets/environment/vesuvius_morning.png",
+    "vesuvius_sunset": "/assets/environment/vesuvius_sunset.png",
+    "vesuvius_night": "/assets/environment/vesuvius_night.png",
+    "tileset_iso": "/assets/environment/tileset_iso.png",
+    "furniture_iso": "/assets/environment/furniture_iso.png",
+    "tile_parquet": "/assets/environment/tile_parquet.png",
+    "tile_corridor": "/assets/environment/tile_corridor.png",
+    "tile_server_grill": "/assets/environment/tile_server_grill.png",
+    "tile_server_solid": "/assets/environment/tile_server_solid.png",
+    "wall_left": "/assets/environment/wall_left.png",
+    "wall_right": "/assets/environment/wall_right.png",
+    "door_frame": "/assets/environment/door_frame.png",
+    "furniture_desk": "/assets/environment/furniture_desk.png",
+    "furniture_rack_sw1_f0": "/assets/environment/furniture_rack_sw1_f0.png",
+    "furniture_rack_sw1_f1": "/assets/environment/furniture_rack_sw1_f1.png",
+    "furniture_rack_sw1_sheet": "/assets/environment/furniture_rack_sw1_sheet.png",
+    "furniture_server_r1_f0": "/assets/environment/furniture_server_r1_f0.png",
+    "furniture_server_r1_f1": "/assets/environment/furniture_server_r1_f1.png",
+    "furniture_server_r1_sheet": "/assets/environment/furniture_server_r1_sheet.png",
+    "furniture_bar_coffee_f0": "/assets/environment/furniture_bar_coffee_f0.png",
+    "furniture_bar_coffee_f1": "/assets/environment/furniture_bar_coffee_f1.png",
+    "furniture_bar_coffee_sheet": "/assets/environment/furniture_bar_coffee_sheet.png",
+    "furniture_monstera": "/assets/environment/furniture_monstera.png",
+    "furniture_pizza_box": "/assets/environment/furniture_pizza_box.png",
+    "window_vesuvius_iso_morning": "/assets/environment/window_vesuvius_iso_morning.png",
+    "window_vesuvius_iso_sunset": "/assets/environment/window_vesuvius_iso_sunset.png",
+    "window_vesuvius_iso_night": "/assets/environment/window_vesuvius_iso_night.png"
+  },
+  "dimensions": {
+    "/assets/characters/protagonist_spritesheet.png": {
+      "width": 160,
+      "height": 256
+    },
+    "/assets/characters/rosaria_spritesheet.png": {
+      "width": 160,
+      "height": 256
+    },
+    "/assets/characters/ciro_spritesheet.png": {
+      "width": 160,
+      "height": 256
+    },
+    "/assets/characters/marco_spritesheet.png": {
+      "width": 160,
+      "height": 256
+    },
+    "/assets/portraits/protagonist_neutral.png": {
+      "width": 128,
+      "height": 128
+    },
+    "/assets/portraits/protagonist_tense.png": {
+      "width": 128,
+      "height": 128
+    },
+    "/assets/portraits/protagonist_satisfied.png": {
+      "width": 128,
+      "height": 128
+    },
+    "/assets/portraits/rosaria_neutral.png": {
+      "width": 128,
+      "height": 128
+    },
+    "/assets/portraits/rosaria_tense.png": {
+      "width": 128,
+      "height": 128
+    },
+    "/assets/portraits/rosaria_satisfied.png": {
+      "width": 128,
+      "height": 128
+    },
+    "/assets/portraits/ciro_neutral.png": {
+      "width": 128,
+      "height": 128
+    },
+    "/assets/portraits/ciro_tense.png": {
+      "width": 128,
+      "height": 128
+    },
+    "/assets/portraits/ciro_satisfied.png": {
+      "width": 128,
+      "height": 128
+    },
+    "/assets/portraits/marco_neutral.png": {
+      "width": 128,
+      "height": 128
+    },
+    "/assets/portraits/marco_tense.png": {
+      "width": 128,
+      "height": 128
+    },
+    "/assets/portraits/marco_satisfied.png": {
+      "width": 128,
+      "height": 128
+    },
+    "/assets/portraits/secbot_neutral.png": {
+      "width": 128,
+      "height": 128
+    },
+    "/assets/portraits/secbot_tense.png": {
+      "width": 128,
+      "height": 128
+    },
+    "/assets/portraits/secbot_satisfied.png": {
+      "width": 128,
+      "height": 128
+    },
+    "/assets/environment/tile_parquet.png": {
+      "width": 64,
+      "height": 32
+    },
+    "/assets/environment/tile_corridor.png": {
+      "width": 64,
+      "height": 32
+    },
+    "/assets/environment/tile_server_grill.png": {
+      "width": 64,
+      "height": 32
+    },
+    "/assets/environment/tile_server_solid.png": {
+      "width": 64,
+      "height": 32
+    },
+    "/assets/environment/wall_left.png": {
+      "width": 64,
+      "height": 80
+    },
+    "/assets/environment/wall_right.png": {
+      "width": 64,
+      "height": 80
+    },
+    "/assets/environment/door_frame.png": {
+      "width": 64,
+      "height": 80
+    },
+    "/assets/environment/tileset_iso.png": {
+      "width": 256,
+      "height": 112
+    },
+    "/assets/environment/furniture_desk.png": {
+      "width": 64,
+      "height": 64
+    },
+    "/assets/environment/furniture_rack_sw1_f0.png": {
+      "width": 64,
+      "height": 80
+    },
+    "/assets/environment/furniture_rack_sw1_f1.png": {
+      "width": 64,
+      "height": 80
+    },
+    "/assets/environment/furniture_server_r1_f0.png": {
+      "width": 64,
+      "height": 96
+    },
+    "/assets/environment/furniture_server_r1_f1.png": {
+      "width": 64,
+      "height": 96
+    },
+    "/assets/environment/furniture_bar_coffee_f0.png": {
+      "width": 80,
+      "height": 64
+    },
+    "/assets/environment/furniture_bar_coffee_f1.png": {
+      "width": 80,
+      "height": 64
+    },
+    "/assets/environment/furniture_monstera.png": {
+      "width": 48,
+      "height": 56
+    },
+    "/assets/environment/furniture_pizza_box.png": {
+      "width": 32,
+      "height": 32
+    },
+    "/assets/environment/furniture_rack_sw1_sheet.png": {
+      "width": 128,
+      "height": 80
+    },
+    "/assets/environment/furniture_server_r1_sheet.png": {
+      "width": 128,
+      "height": 96
+    },
+    "/assets/environment/furniture_bar_coffee_sheet.png": {
+      "width": 160,
+      "height": 64
+    },
+    "/assets/environment/furniture_iso.png": {
+      "width": 320,
+      "height": 192
+    },
+    "/assets/environment/vesuvius_morning.png": {
+      "width": 320,
+      "height": 180
+    },
+    "/assets/environment/vesuvius_sunset.png": {
+      "width": 320,
+      "height": 180
+    },
+    "/assets/environment/vesuvius_night.png": {
+      "width": 320,
+      "height": 180
+    },
+    "/assets/environment/window_vesuvius_iso_morning.png": {
+      "width": 96,
+      "height": 80
+    },
+    "/assets/environment/window_vesuvius_iso_sunset.png": {
+      "width": 96,
+      "height": 80
+    },
+    "/assets/environment/window_vesuvius_iso_night.png": {
+      "width": 96,
+      "height": 80
+    }
+  },
+  "assets": [
+    {
+      "key": "protagonist",
+      "category": "characters",
+      "url": "/assets/characters/protagonist_spritesheet.png",
+      "width": 160,
+      "height": 256,
+      "frameWidth": 32,
+      "frameHeight": 64,
+      "frames": 20
+    },
+    {
+      "key": "rosaria",
+      "category": "characters",
+      "url": "/assets/characters/rosaria_spritesheet.png",
+      "width": 160,
+      "height": 256,
+      "frameWidth": 32,
+      "frameHeight": 64,
+      "frames": 20
+    },
+    {
+      "key": "ciro",
+      "category": "characters",
+      "url": "/assets/characters/ciro_spritesheet.png",
+      "width": 160,
+      "height": 256,
+      "frameWidth": 32,
+      "frameHeight": 64,
+      "frames": 20
+    },
+    {
+      "key": "marco",
+      "category": "characters",
+      "url": "/assets/characters/marco_spritesheet.png",
+      "width": 160,
+      "height": 256,
+      "frameWidth": 32,
+      "frameHeight": 64,
+      "frames": 20
+    },
+    {
+      "key": "protagonist_neutral",
+      "character": "protagonist",
+      "expression": "neutral",
+      "category": "portraits",
+      "url": "/assets/portraits/protagonist_neutral.png",
+      "width": 128,
+      "height": 128,
+      "baseWidth": 64,
+      "baseHeight": 64
+    },
+    {
+      "key": "protagonist_tense",
+      "character": "protagonist",
+      "expression": "tense",
+      "category": "portraits",
+      "url": "/assets/portraits/protagonist_tense.png",
+      "width": 128,
+      "height": 128,
+      "baseWidth": 64,
+      "baseHeight": 64
+    },
+    {
+      "key": "protagonist_satisfied",
+      "character": "protagonist",
+      "expression": "satisfied",
+      "category": "portraits",
+      "url": "/assets/portraits/protagonist_satisfied.png",
+      "width": 128,
+      "height": 128,
+      "baseWidth": 64,
+      "baseHeight": 64
+    },
+    {
+      "key": "rosaria_neutral",
+      "character": "rosaria",
+      "expression": "neutral",
+      "category": "portraits",
+      "url": "/assets/portraits/rosaria_neutral.png",
+      "width": 128,
+      "height": 128,
+      "baseWidth": 64,
+      "baseHeight": 64
+    },
+    {
+      "key": "rosaria_tense",
+      "character": "rosaria",
+      "expression": "tense",
+      "category": "portraits",
+      "url": "/assets/portraits/rosaria_tense.png",
+      "width": 128,
+      "height": 128,
+      "baseWidth": 64,
+      "baseHeight": 64
+    },
+    {
+      "key": "rosaria_satisfied",
+      "character": "rosaria",
+      "expression": "satisfied",
+      "category": "portraits",
+      "url": "/assets/portraits/rosaria_satisfied.png",
+      "width": 128,
+      "height": 128,
+      "baseWidth": 64,
+      "baseHeight": 64
+    },
+    {
+      "key": "ciro_neutral",
+      "character": "ciro",
+      "expression": "neutral",
+      "category": "portraits",
+      "url": "/assets/portraits/ciro_neutral.png",
+      "width": 128,
+      "height": 128,
+      "baseWidth": 64,
+      "baseHeight": 64
+    },
+    {
+      "key": "ciro_tense",
+      "character": "ciro",
+      "expression": "tense",
+      "category": "portraits",
+      "url": "/assets/portraits/ciro_tense.png",
+      "width": 128,
+      "height": 128,
+      "baseWidth": 64,
+      "baseHeight": 64
+    },
+    {
+      "key": "ciro_satisfied",
+      "character": "ciro",
+      "expression": "satisfied",
+      "category": "portraits",
+      "url": "/assets/portraits/ciro_satisfied.png",
+      "width": 128,
+      "height": 128,
+      "baseWidth": 64,
+      "baseHeight": 64
+    },
+    {
+      "key": "marco_neutral",
+      "character": "marco",
+      "expression": "neutral",
+      "category": "portraits",
+      "url": "/assets/portraits/marco_neutral.png",
+      "width": 128,
+      "height": 128,
+      "baseWidth": 64,
+      "baseHeight": 64
+    },
+    {
+      "key": "marco_tense",
+      "character": "marco",
+      "expression": "tense",
+      "category": "portraits",
+      "url": "/assets/portraits/marco_tense.png",
+      "width": 128,
+      "height": 128,
+      "baseWidth": 64,
+      "baseHeight": 64
+    },
+    {
+      "key": "marco_satisfied",
+      "character": "marco",
+      "expression": "satisfied",
+      "category": "portraits",
+      "url": "/assets/portraits/marco_satisfied.png",
+      "width": 128,
+      "height": 128,
+      "baseWidth": 64,
+      "baseHeight": 64
+    },
+    {
+      "key": "secbot_neutral",
+      "character": "secbot",
+      "expression": "neutral",
+      "category": "portraits",
+      "url": "/assets/portraits/secbot_neutral.png",
+      "width": 128,
+      "height": 128,
+      "baseWidth": 64,
+      "baseHeight": 64
+    },
+    {
+      "key": "secbot_tense",
+      "character": "secbot",
+      "expression": "tense",
+      "category": "portraits",
+      "url": "/assets/portraits/secbot_tense.png",
+      "width": 128,
+      "height": 128,
+      "baseWidth": 64,
+      "baseHeight": 64
+    },
+    {
+      "key": "secbot_satisfied",
+      "character": "secbot",
+      "expression": "satisfied",
+      "category": "portraits",
+      "url": "/assets/portraits/secbot_satisfied.png",
+      "width": 128,
+      "height": 128,
+      "baseWidth": 64,
+      "baseHeight": 64
+    },
+    {
+      "key": "tile_parquet",
+      "category": "environment",
+      "url": "/assets/environment/tile_parquet.png",
+      "width": 64,
+      "height": 32
+    },
+    {
+      "key": "tile_corridor",
+      "category": "environment",
+      "url": "/assets/environment/tile_corridor.png",
+      "width": 64,
+      "height": 32
+    },
+    {
+      "key": "tile_server_grill",
+      "category": "environment",
+      "url": "/assets/environment/tile_server_grill.png",
+      "width": 64,
+      "height": 32
+    },
+    {
+      "key": "tile_server_solid",
+      "category": "environment",
+      "url": "/assets/environment/tile_server_solid.png",
+      "width": 64,
+      "height": 32
+    },
+    {
+      "key": "wall_left",
+      "category": "environment",
+      "url": "/assets/environment/wall_left.png",
+      "width": 64,
+      "height": 80
+    },
+    {
+      "key": "wall_right",
+      "category": "environment",
+      "url": "/assets/environment/wall_right.png",
+      "width": 64,
+      "height": 80
+    },
+    {
+      "key": "door_frame",
+      "category": "environment",
+      "url": "/assets/environment/door_frame.png",
+      "width": 64,
+      "height": 80
+    },
+    {
+      "key": "tileset_iso",
+      "category": "environment",
+      "url": "/assets/environment/tileset_iso.png",
+      "width": 256,
+      "height": 112
+    },
+    {
+      "key": "furniture_desk",
+      "category": "environment",
+      "url": "/assets/environment/furniture_desk.png",
+      "width": 64,
+      "height": 64
+    },
+    {
+      "key": "furniture_rack_sw1_f0",
+      "category": "environment",
+      "url": "/assets/environment/furniture_rack_sw1_f0.png",
+      "width": 64,
+      "height": 80
+    },
+    {
+      "key": "furniture_rack_sw1_f1",
+      "category": "environment",
+      "url": "/assets/environment/furniture_rack_sw1_f1.png",
+      "width": 64,
+      "height": 80
+    },
+    {
+      "key": "furniture_server_r1_f0",
+      "category": "environment",
+      "url": "/assets/environment/furniture_server_r1_f0.png",
+      "width": 64,
+      "height": 96
+    },
+    {
+      "key": "furniture_server_r1_f1",
+      "category": "environment",
+      "url": "/assets/environment/furniture_server_r1_f1.png",
+      "width": 64,
+      "height": 96
+    },
+    {
+      "key": "furniture_bar_coffee_f0",
+      "category": "environment",
+      "url": "/assets/environment/furniture_bar_coffee_f0.png",
+      "width": 80,
+      "height": 64
+    },
+    {
+      "key": "furniture_bar_coffee_f1",
+      "category": "environment",
+      "url": "/assets/environment/furniture_bar_coffee_f1.png",
+      "width": 80,
+      "height": 64
+    },
+    {
+      "key": "furniture_monstera",
+      "category": "environment",
+      "url": "/assets/environment/furniture_monstera.png",
+      "width": 48,
+      "height": 56
+    },
+    {
+      "key": "furniture_pizza_box",
+      "category": "environment",
+      "url": "/assets/environment/furniture_pizza_box.png",
+      "width": 32,
+      "height": 32
+    },
+    {
+      "key": "furniture_rack_sw1_sheet",
+      "category": "environment",
+      "url": "/assets/environment/furniture_rack_sw1_sheet.png",
+      "width": 128,
+      "height": 80,
+      "frameWidth": 64,
+      "frameHeight": 80
+    },
+    {
+      "key": "furniture_server_r1_sheet",
+      "category": "environment",
+      "url": "/assets/environment/furniture_server_r1_sheet.png",
+      "width": 128,
+      "height": 96,
+      "frameWidth": 64,
+      "frameHeight": 96
+    },
+    {
+      "key": "furniture_bar_coffee_sheet",
+      "category": "environment",
+      "url": "/assets/environment/furniture_bar_coffee_sheet.png",
+      "width": 160,
+      "height": 64,
+      "frameWidth": 80,
+      "frameHeight": 64
+    },
+    {
+      "key": "furniture_iso",
+      "category": "environment",
+      "url": "/assets/environment/furniture_iso.png",
+      "width": 320,
+      "height": 192
+    },
+    {
+      "key": "vesuvius_morning",
+      "category": "environment",
+      "url": "/assets/environment/vesuvius_morning.png",
+      "width": 320,
+      "height": 180
+    },
+    {
+      "key": "vesuvius_sunset",
+      "category": "environment",
+      "url": "/assets/environment/vesuvius_sunset.png",
+      "width": 320,
+      "height": 180
+    },
+    {
+      "key": "vesuvius_night",
+      "category": "environment",
+      "url": "/assets/environment/vesuvius_night.png",
+      "width": 320,
+      "height": 180
+    },
+    {
+      "key": "window_vesuvius_iso_morning",
+      "phase": "morning",
+      "category": "environment",
+      "url": "/assets/environment/window_vesuvius_iso_morning.png",
+      "width": 96,
+      "height": 80
+    },
+    {
+      "key": "window_vesuvius_iso_sunset",
+      "phase": "sunset",
+      "category": "environment",
+      "url": "/assets/environment/window_vesuvius_iso_sunset.png",
+      "width": 96,
+      "height": 80
+    },
+    {
+      "key": "window_vesuvius_iso_night",
+      "phase": "night",
+      "category": "environment",
+      "url": "/assets/environment/window_vesuvius_iso_night.png",
+      "width": 96,
+      "height": 80
+    }
+  ]
+}

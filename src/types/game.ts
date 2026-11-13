@@ -1,6 +1,6 @@
 export type GameScreen = 'office' | 'rack' | 'terminal' | 'umbrella' | 'wireshark' | 'badges';
 
-export type RoomId = 'office' | 'datacenter_vault';
+export type RoomId = 'office' | 'corridor' | 'datacenter_vault';
 
 export interface Badge {
   id: string;
