@@ -25,7 +25,10 @@ export const CmlConsole: React.FC<{ roomId: string; node: string; height?: numbe
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host.current);
-    fit.fit();
+    let disposed = false;
+    // fit() puo' fallire se il renderer non e' pronto o il terminale e' gia' chiuso
+    const safeFit = () => { if (!disposed) { try { fit.fit(); } catch { /* renderer non pronto */ } } };
+    safeFit();
     const ws = new WebSocket(infraBridge.consoleUrl(roomId, node));
     ws.binaryType = 'arraybuffer';
     const sendSize = () => {
@@ -47,15 +50,17 @@ export const CmlConsole: React.FC<{ roomId: string; node: string; height?: numbe
       if (ws.readyState === WebSocket.OPEN) ws.send(d);
     });
     const ro = new ResizeObserver(() => {
-      fit.fit();
+      safeFit();
       sendSize();
     });
     ro.observe(host.current);
     return () => {
+      disposed = true;
       ro.disconnect();
       sub.dispose();
       ws.close();
-      term.dispose();
+      // xterm 5.5 ha timer interni che scattano dopo dispose(): si chiude un attimo dopo
+      setTimeout(() => term.dispose(), 200);
     };
   }, [roomId, node]);
 
