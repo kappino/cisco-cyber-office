@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { X, Cable, AlertTriangle, Unplug, ClipboardCheck, CheckCircle2, XCircle } from 'lucide-react';
+import { X, Cable, AlertTriangle, Unplug, ClipboardCheck, CheckCircle2, XCircle, LifeBuoy } from 'lucide-react';
 import { sound } from '../utils/audio';
 import { infraBridge, LedState, PortLed, RoomPorts, RoomTopology, RoomTopologyDevice, RoomInterface, RoomVerify } from '../utils/infraBridge';
 import { CmlConsole } from './CmlDevicePanel';
@@ -33,6 +33,8 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [verify, setVerify] = useState<RoomVerify | null>(null);
+  // aiuto alla diagnosi: il motivo dello stato dei LED si mostra solo se il giocatore lo chiede
+  const [diagHelp, setDiagHelp] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [paths, setPaths] = useState<{ id: string; d: string; color: string; dashed: boolean }[]>([]);
   const inner = useRef<HTMLDivElement>(null);
@@ -204,7 +206,7 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
       <button
         key={i.label}
         onClick={() => onPortClick(p)}
-        title={`${d.label} ${i.label}${i.peer ? ` → ${i.peer.node} ${i.peer.iface}` : ' (libera)'}${i.connected && i.link_state !== 'STARTED' ? ' · cavo staccato' : info ? ` · ${info.status}` : ''}`}
+        title={`${d.label} ${i.label}${i.peer ? ` → ${i.peer.node} ${i.peer.iface}` : ' (libera)'}${diagHelp ? (i.connected && i.link_state !== 'STARTED' ? ' · cavo staccato' : info ? ` · ${info.status}` : '') : ''}`}
         className={`p-1.5 rounded border text-left transition-all min-w-[64px] ${
           isSel ? 'bg-cyan-500/20 border-cyan-400 ring-2 ring-cyan-400/50 scale-105'
             : i.connected ? 'bg-slate-950 border-emerald-600/50' : 'bg-slate-950/80 border-slate-700 hover:border-cyan-500/70'
@@ -251,6 +253,13 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setDiagHelp((v) => !v)}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded border text-xs ${diagHelp ? 'border-amber-400 bg-amber-500/20 text-amber-100' : 'border-slate-600 text-slate-300 hover:bg-slate-800'}`}
+              title="Mostra il motivo dello stato dei LED passando sulle porte"
+            >
+              <LifeBuoy className="w-4 h-4" /> Aiuto diagnosi: {diagHelp ? 'sì' : 'no'}
+            </button>
             <button
               onClick={() => void runVerify()}
               disabled={verifying}
