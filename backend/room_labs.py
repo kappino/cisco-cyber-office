@@ -154,7 +154,12 @@ def open_console(lab_title: str, node_label: str, width: int = 120, height: int 
     raise RuntimeError(f"console di {node_label} non disponibile: {buf[-200:].decode(errors='ignore')}")
 
 
+# sequenze di controllo del terminale (es. ESC[6n che la shell di Alpine manda dopo il prompt)
+ANSI_ESC = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][A-Z0-9]")
+
+
 def _read_until(chan: paramiko.Channel, pred: Callable[[str], bool], timeout: float) -> str:
+    """Legge finche' `pred` (applicato al testo SENZA sequenze di controllo) e' vera, o fino al timeout."""
     out = ""
     t0 = time.time()
     while time.time() - t0 < timeout:
@@ -164,9 +169,9 @@ def _read_until(chan: paramiko.Channel, pred: Callable[[str], bool], timeout: fl
             data = b""
         if data:
             out += data.decode(errors="ignore")
-            if pred(out):
+            if pred(ANSI_ESC.sub("", out)):
                 break
-    return out
+    return ANSI_ESC.sub("", out)
 
 
 def _linux_login(chan: paramiko.Channel, out: str) -> str:
@@ -485,6 +490,12 @@ class RoomManager:
             return {"room_id": room_id, "lab_title": spec["lab_title"], "lab_id": None, "status": status,
                     "racks": spec.get("racks", []), "devices": [], "links": [], "error": "lab non ancora creato"}
         nodes = await self._nodes(lid)
+        if self.status[room_id]["phase"] == "idle" and nodes and all(n["state"] == "BOOTED" for n in nodes) \
+                and f"fr-init-done:{spec['hash']}" in ((await self.api.get(f"/labs/{lid}")).get("lab_notes") or ""):
+            # lab gia' acceso (es. dopo un riavvio del backend): la stanza e' pronta
+            self.active_room = room_id
+            self._wanted = room_id
+            self._set(room_id, "ready", "Rete della stanza accesa", ready_nodes=len(nodes), total_nodes=len(nodes))
         if self.status[room_id]["phase"] == "ready" and any(n["state"] in OFF_STATES for n in nodes):
             # qualcun altro (un altro backend, l'interfaccia di CML) ha spento il lab della stanza
             self._set(room_id, "error", "il lab della stanza e' stato spento da fuori: riaccendilo rientrando nella stanza",
