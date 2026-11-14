@@ -12,6 +12,7 @@ import { infraBridge, RoomTopology } from '../utils/infraBridge';
 export const CmlConsole: React.FC<{ roomId: string; node: string; height?: number }> = ({ roomId, node, height = 300 }) => {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<'connecting' | 'open' | 'closed'>('connecting');
+  const [lock, setLock] = useState<string | null>(null);
 
   useEffect(() => {
     if (!host.current) return;
@@ -40,6 +41,18 @@ export const CmlConsole: React.FC<{ roomId: string; node: string; height?: numbe
       term.focus();
     };
     ws.onmessage = (ev) => {
+      if (typeof ev.data === 'string' && ev.data.startsWith('{"type":')) {
+        // messaggi di controllo: blocco della console durante la Verifica
+        try {
+          const msg = JSON.parse(ev.data) as { type: string; on: boolean; reason: string };
+          if (msg.type === 'lock') {
+            setLock(msg.on ? msg.reason || 'Operazione in corso' : null);
+            term.options.disableStdin = msg.on;
+            if (!msg.on) term.focus();
+          }
+        } catch { /* non era un messaggio di controllo */ }
+        return;
+      }
       term.write(typeof ev.data === 'string' ? ev.data : new Uint8Array(ev.data as ArrayBuffer));
     };
     ws.onclose = () => {
@@ -71,12 +84,21 @@ export const CmlConsole: React.FC<{ roomId: string; node: string; height?: numbe
         {state === 'open' && `Console di ${node} (CML) · Tab, ? e frecce funzionano come sul dispositivo vero`}
         {state === 'closed' && 'Console chiusa: riapri per riconnetterti.'}
       </div>
-      <div
-        ref={host}
-        style={{ height }}
-        className="rounded border border-emerald-700/50 bg-slate-950 p-1"
-        onClick={(e) => e.stopPropagation()}
-      />
+      <div className="relative">
+        <div
+          ref={host}
+          style={{ height }}
+          className={`rounded border bg-slate-950 p-1 ${lock ? 'border-amber-500/70 opacity-40' : 'border-emerald-700/50'}`}
+          onClick={(e) => e.stopPropagation()}
+        />
+        {lock && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="px-3 py-2 rounded-lg bg-slate-900/95 border border-amber-500 text-amber-200 text-xs font-mono">
+              {lock}: il terminale riprende appena finisce
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

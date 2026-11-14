@@ -194,7 +194,7 @@ def run_console_commands(lab_title: str, node_label: str, cml_def: str, commands
     ssh, chan, _ = open_console(lab_title, node_label)
     try:
         linux = cml_def in LINUX_DEFS
-        chan.send("\r")
+        chan.send("\x15\r")  # Ctrl+U: cancella un'eventuale riga lasciata a meta' da un giocatore
         out = _read_until(chan, lambda s: bool(s.strip()) and (
             "login:" in s[-60:] or bool((LINUX_PROMPT if linux else IOS_PROMPT).search(s.rstrip("\r\n").splitlines()[-1]))), 4)
         if linux:
@@ -731,7 +731,10 @@ class RoomManager:
             by_host.setdefault(c["from"], []).append(c)
         jobs = [asyncio.to_thread(device_diff, n) for n in ios] + \
                [asyncio.to_thread(host_checks, h, items) for h, items in by_host.items()]
-        results = await asyncio.gather(*jobs)
+        touched = [n["label"] for n in ios] + list(by_host)
+        with console_lock(title, touched, "Verifica in corso"):
+            results = await asyncio.gather(*jobs)
+            await asyncio.sleep(0.5)  # le ultime righe dell'output arrivano ancora durante il blocco
         devices = results[:len(ios)]
         checks = [c for group in results[len(ios):] for c in group]
         checks.sort(key=lambda c: next((i for i, sc in enumerate(spec.get("checks", []))
@@ -761,6 +764,28 @@ room_manager = RoomManager()
 # ---------------------------------------------------------------------------
 # Ponte console <-> WebSocket
 # ---------------------------------------------------------------------------
+# console bloccate da un'operazione automatica (es. Verifica): (lab, nodo) -> motivo.
+# Mentre un nodo e' bloccato il ponte WebSocket non inoltra al giocatore ne' l'output ne' i tasti.
+CONSOLE_LOCKS: Dict[Tuple[str, str], str] = {}
+
+
+class console_lock:
+    """Blocca le console di alcuni nodi per la durata del blocco `with`."""
+
+    def __init__(self, lab_title: str, nodes: List[str], reason: str) -> None:
+        self.keys = [(lab_title, n) for n in nodes]
+        self.reason = reason
+
+    def __enter__(self) -> "console_lock":
+        for k in self.keys:
+            CONSOLE_LOCKS[k] = self.reason
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        for k in self.keys:
+            CONSOLE_LOCKS.pop(k, None)
+
+
 # console aperte dai giocatori: (lab, nodo) -> numero di sessioni. La console seriale e' una linea
 # condivisa: su questi nodi il backend non manda comandi automatici (es. lettura dei LED).
 OPEN_CONSOLES: Dict[Tuple[str, str], int] = {}
@@ -806,6 +831,8 @@ class ConsoleBridge:
                     continue
                 if not data:
                     break
+                if (self.lab_title, self.node_label) in CONSOLE_LOCKS:
+                    continue  # output di un'operazione automatica: il giocatore non lo vede
                 self._emit(data)
                 if not logged_in and time.time() - t0 < 30:
                     tail = (tail + data.decode(errors="ignore"))[-80:]
@@ -818,9 +845,18 @@ class ConsoleBridge:
         finally:
             self.loop.call_soon_threadsafe(self.queue.put_nowait, None)
 
+    def locked(self) -> Optional[str]:
+        return CONSOLE_LOCKS.get((self.lab_title, self.node_label))
+
     def send(self, data: str) -> None:
+        if self.locked():
+            return  # tasti ignorati mentre la console e' bloccata
         if self.chan and not self.chan.closed:
             self.chan.send(data)
+
+    def redraw_prompt(self) -> None:
+        if self.chan and not self.chan.closed:
+            self.chan.send("\r")
 
     def resize(self, cols: int, rows: int) -> None:
         if self.chan and not self.chan.closed:

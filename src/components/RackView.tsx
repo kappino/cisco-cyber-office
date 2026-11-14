@@ -271,7 +271,7 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
                   <button onClick={() => setVerify(null)} className="text-slate-400 hover:text-white" aria-label="Chiudi verifica"><X className="w-4 h-4" /></button>
                 </div>
                 <div className="text-[10px] text-slate-400 mb-2">
-                  Letto dagli apparati veri in {verify.took_s} s · i comandi di lettura (show running-config, ping) compaiono anche nelle console aperte
+                  Letto dagli apparati veri in {verify.took_s} s · durante la verifica le console aperte restano in pausa
                 </div>
                 <div className="grid gap-3 md:grid-cols-2">
                   <div>

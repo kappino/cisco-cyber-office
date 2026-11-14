@@ -202,7 +202,20 @@ async def console_ws(ws: WebSocket, room_id: str, node: str) -> None:
                     pass
             bridge.send(text)
 
-    tasks = [asyncio.create_task(to_browser()), asyncio.create_task(from_browser())]
+    async def watch_lock() -> None:
+        """Avvisa il browser quando la console viene bloccata/sbloccata (mutex della Verifica)."""
+        was = None
+        while True:
+            now = bridge.locked()
+            if now != was:
+                await ws.send_text(json.dumps({"type": "lock", "on": bool(now), "reason": now or ""}))
+                if was and not now:
+                    bridge.redraw_prompt()  # console di nuovo libera: ricompare il prompt
+                was = now
+            await asyncio.sleep(0.2)
+
+    tasks = [asyncio.create_task(to_browser()), asyncio.create_task(from_browser()),
+             asyncio.create_task(watch_lock())]
     try:
         await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     except WebSocketDisconnect:
