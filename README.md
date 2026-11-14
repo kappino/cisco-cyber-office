@@ -34,6 +34,13 @@ Un **serious game retro/pixel-art in stile Habbo Hotel** che introduce studenti 
 
 ---
 
+
+## 🔌 Integrazione con Cisco Modeling Labs
+
+Le stanze del gioco sono collegate 1:1 a lab CML veri (console, cavi, LED, Verifica):
+funzionamento completo e **limiti noti** in [`docs/CML_INTEGRAZIONE.md`](docs/CML_INTEGRAZIONE.md);
+collaudi in [`tests/cml/`](tests/cml/README.md).
+
 ## 🚀 Come avviare il progetto
 
 ### Metodo 1: Node.js locale / Dev Server (Immediato)

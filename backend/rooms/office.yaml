@@ -1,0 +1,180 @@
+# Stanza "office" (Ufficio operativo, 1F) -> lab CML FuoriRete_Room_Office
+# Rete d'accesso di un piano: router-on-a-stick con DHCP, uno switch d'accesso,
+# VLAN separate per reparto e stampante di rete in una VLAN servizi.
+# La presa della sala riunioni (Et1/0) NON ha portfast: collegandoci un PC la porta resta ambra
+# circa 30 s (STP) prima di passare al verde.
+room_id: office
+lab_title: FuoriRete_Room_Office
+description: "Piano 1: VLAN per reparto, trunk 802.1Q, router-on-a-stick, DHCP"
+
+racks:
+  - { id: A, label: "Armadio di rete del piano", gx: 1.0, gy: 1.0 }
+
+nodes:
+  - label: RTR-UFFICIO
+    cml_def: iol-xe
+    kind: router
+    display: "Router del piano"
+    rack: A
+    cml_xy: [0, -200]
+    config: |
+      hostname RTR-UFFICIO
+      no ip domain lookup
+      ip dhcp excluded-address 10.10.10.1 10.10.10.49
+      ip dhcp excluded-address 10.10.20.1 10.10.20.49
+      ip dhcp pool MARKETING
+       network 10.10.10.0 255.255.255.0
+       default-router 10.10.10.1
+       dns-server 10.10.30.10
+      ip dhcp pool AMMINISTRAZIONE
+       network 10.10.20.0 255.255.255.0
+       default-router 10.10.20.1
+       dns-server 10.10.30.10
+      interface Ethernet0/0
+       description TRUNK verso SW-PIANO1 Et0/0
+       no shutdown
+      interface Ethernet0/0.10
+       description VLAN10 MARKETING
+       encapsulation dot1Q 10
+       ip address 10.10.10.1 255.255.255.0
+      interface Ethernet0/0.20
+       description VLAN20 AMMINISTRAZIONE
+       encapsulation dot1Q 20
+       ip address 10.10.20.1 255.255.255.0
+      interface Ethernet0/0.30
+       description VLAN30 SERVIZI (stampanti)
+       encapsulation dot1Q 30
+       ip address 10.10.30.1 255.255.255.0
+      interface Ethernet0/0.99
+       description VLAN99 GESTIONE
+       encapsulation dot1Q 99
+       ip address 10.10.99.1 255.255.255.0
+      line con 0
+       exec-timeout 0 0
+       logging synchronous
+      end
+
+  - label: SW-PIANO1
+    cml_def: ioll2-xe
+    kind: switch
+    display: "Switch d'accesso del piano"
+    rack: A
+    cml_xy: [0, 0]
+    min_interfaces: 8
+    config: |
+      hostname SW-PIANO1
+      vtp mode transparent
+      no ip domain lookup
+      vlan 10
+       name MARKETING
+      vlan 20
+       name AMMINISTRAZIONE
+      vlan 30
+       name SERVIZI
+      vlan 99
+       name GESTIONE
+      vlan 999
+       name NATIVA-NON-USATA
+      spanning-tree mode rapid-pvst
+      interface Ethernet0/0
+       description TRUNK verso RTR-UFFICIO Et0/0
+       switchport trunk encapsulation dot1q
+       switchport mode trunk
+       switchport trunk native vlan 999
+       switchport trunk allowed vlan 10,20,30,99
+       switchport nonegotiate
+      interface Ethernet0/1
+       description PC-MARKETING
+       switchport mode access
+       switchport access vlan 10
+       spanning-tree portfast
+      interface Ethernet0/2
+       description PC-CONTABILITA
+       switchport mode access
+       switchport access vlan 20
+       spanning-tree portfast
+      interface Ethernet0/3
+       description STAMPANTE
+       switchport mode access
+       switchport access vlan 30
+       spanning-tree portfast
+      interface Ethernet1/0
+       description presa libera sala riunioni (Marketing)
+       switchport mode access
+       switchport access vlan 10
+      interface Ethernet1/1
+       description presa libera (Amministrazione)
+       switchport mode access
+       switchport access vlan 20
+       spanning-tree portfast
+      interface Ethernet1/2
+       description presa libera (Servizi)
+       switchport mode access
+       switchport access vlan 30
+       spanning-tree portfast
+      interface Ethernet1/3
+       description NON USATA
+       switchport mode access
+       switchport access vlan 999
+       shutdown
+      interface Vlan99
+       ip address 10.10.99.2 255.255.255.0
+       no shutdown
+      ip default-gateway 10.10.99.1
+      line con 0
+       exec-timeout 0 0
+       logging synchronous
+      end
+
+  - label: PC-MARKETING
+    cml_def: alpine
+    kind: pc
+    display: "PC di Marta (Marketing)"
+    game: { gx: 4.0, gy: 1.0 }
+    jack: { rack: A, label: MKT-01 }
+    cml_xy: [-200, 200]
+    config: |
+      hostname PC-MARKETING
+      ip link set eth0 up
+      udhcpc -i eth0 -b -q -t 10 -T 2 || true
+
+  - label: PC-CONTABILITA
+    cml_def: alpine
+    kind: pc
+    display: "PC di Salvatore (Contabilità)"
+    game: { gx: 5.0, gy: 1.0 }
+    jack: { rack: A, label: AMM-01 }
+    cml_xy: [0, 200]
+    config: |
+      hostname PC-CONTABILITA
+      ip link set eth0 up
+      udhcpc -i eth0 -b -q -t 10 -T 2 || true
+
+  - label: STAMPANTE
+    cml_def: alpine
+    kind: printer
+    display: "Stampante di rete del piano"
+    game: { gx: 2.0, gy: 6.0 }
+    jack: { rack: A, label: SRV-01 }
+    cml_xy: [200, 200]
+    config: |
+      hostname STAMPANTE
+      ip link set eth0 up
+      ip addr add 10.10.30.10/24 dev eth0
+      ip route add default via 10.10.30.1
+      (while true; do echo -e "HTTP/1.0 200 OK\r\n\r\nStampante Piano 1: PRONTA" | nc -l -p 80; done) >/dev/null 2>&1 &
+
+links:
+  - [RTR-UFFICIO, Ethernet0/0, SW-PIANO1, Ethernet0/0]
+  - [SW-PIANO1, Ethernet0/1, PC-MARKETING, eth0]
+  - [SW-PIANO1, Ethernet0/2, PC-CONTABILITA, eth0]
+  - [SW-PIANO1, Ethernet0/3, STAMPANTE, eth0]
+
+# Controlli funzionali della verifica (oltre al diff delle configurazioni)
+checks:
+  - { from: PC-MARKETING, dhcp: "10.10.10.", label: "PC Marketing riceve un indirizzo nella VLAN 10" }
+  - { from: PC-MARKETING, ping: 10.10.10.1, label: "PC Marketing raggiunge il suo gateway" }
+  - { from: PC-MARKETING, ping: 10.10.30.10, label: "PC Marketing raggiunge la stampante (VLAN 30)" }
+  - { from: PC-CONTABILITA, dhcp: "10.10.20.", label: "PC Contabilita' riceve un indirizzo nella VLAN 20" }
+  - { from: PC-CONTABILITA, ping: 10.10.30.10, label: "PC Contabilita' raggiunge la stampante" }
+  - { from: STAMPANTE, ping: 10.10.30.1, label: "La stampante raggiunge il suo gateway" }

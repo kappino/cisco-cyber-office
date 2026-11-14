@@ -62,6 +62,80 @@ const DEFAULT_HEALTH: InfraHealth = {
   aiModel: 'gemma4:12b',
 };
 
+export interface RoomStatus {
+  room_id: string;
+  phase: 'idle' | 'queued' | 'saving' | 'stopping' | 'starting' | 'booting' | 'ready' | 'error';
+  message: string;
+  ready_nodes: number;
+  total_nodes: number;
+}
+
+export interface RoomInterface {
+  label: string;
+  slot: number | null;
+  connected: boolean;
+  link_state: string | null;
+  peer: { node: string; iface: string } | null;
+}
+
+export interface RoomTopologyDevice {
+  rack: string | null;
+  jack: { rack: string; label: string } | null;
+  label: string;
+  cml_def: string;
+  state: string;
+  kind: string;
+  display: string;
+  game: { gx: number; gy: number } | null;
+  console: boolean;
+  interfaces: RoomInterface[];
+}
+
+export interface RoomTopology {
+  room_id: string;
+  lab_title: string;
+  lab_id: string | null;
+  status: RoomStatus;
+  racks: { id: string; label: string; gx: number; gy: number }[];
+  devices: RoomTopologyDevice[];
+  links: { id: string; state: string; a: { node: string; iface: string }; b: { node: string; iface: string } }[];
+  error?: string;
+}
+
+export type LedState = 'off' | 'green' | 'green_blink' | 'amber' | 'amber_blink' | 'green_amber';
+
+export interface PortLed {
+  led: LedState;
+  status: string;
+  vlan: string;
+}
+
+export interface RoomPorts {
+  room_id: string;
+  ready: boolean;
+  read_at?: number;
+  ports: Record<string, Record<string, PortLed | string | boolean>>;
+}
+
+export interface DiffLine { section: string; line: string }
+
+export interface RoomVerify {
+  room_id: string;
+  lab_title: string;
+  ok: boolean;
+  took_s: number;
+  devices: { node: string; kind: string; missing: DiffLine[]; extra: DiffLine[]; ok: boolean; error: string | null }[];
+  checks: { from: string; label: string; ping?: string; dhcp?: string; ok: boolean; detail: string }[];
+}
+
+export interface CableAction {
+  action: 'connect' | 'disconnect' | 'move' | 'unplug' | 'plug';
+  node: string;
+  iface: string;
+  to_node?: string;
+  to_iface?: string;
+}
+
 class InfraBridge {
   private logs: InfraLogEntry[] = [];
   private listeners = new Set<() => void>();
@@ -343,6 +417,66 @@ class InfraBridge {
       summary: `Room(${roomId}) -> ${res.data?.lab_title ?? 'SIM'}`,
       latencyMs: res.data?.latency_ms ?? res.latencyMs,
     });
+  }
+
+  async getRoomTopology(roomId: string): Promise<RoomTopology | null> {
+    try {
+      const res = await fetch(`/api/room/${roomId}/topology`);
+      if (!res.ok) return null;
+      return (await res.json()) as RoomTopology;
+    } catch {
+      return null;
+    }
+  }
+
+  async cable(roomId: string, body: CableAction): Promise<{ ok: boolean; topology?: RoomTopology; error?: string }> {
+    try {
+      const res = await fetch(`/api/room/${roomId}/cable`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      this.addLog({
+        endpoint: `/api/room/${roomId}/cable`,
+        mode: res.ok ? 'live_cml' : 'fallback_sim',
+        summary: `${body.action} ${body.node} ${body.iface}${body.to_iface ? ` -> ${body.to_node} ${body.to_iface}` : ''}`,
+        latencyMs: 0,
+      });
+      return res.ok ? { ok: true, topology: data as RoomTopology } : { ok: false, error: data?.detail ?? 'errore' };
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+
+  async getRoomPorts(roomId: string, fresh = false): Promise<RoomPorts | null> {
+    try {
+      const res = await fetch(`/api/room/${roomId}/ports${fresh ? '?fresh=true' : ''}`);
+      return res.ok ? ((await res.json()) as RoomPorts) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async verifyRoom(roomId: string): Promise<{ ok: boolean; data?: RoomVerify; error?: string }> {
+    try {
+      const res = await fetch(`/api/room/${roomId}/verify`);
+      const data = await res.json();
+      this.addLog({
+        endpoint: `/api/room/${roomId}/verify`,
+        mode: res.ok ? 'live_cml' : 'fallback_sim',
+        summary: res.ok ? `Verifica ${roomId}: ${data.ok ? 'OK' : 'differenze'}` : `Verifica ${roomId}: errore`,
+        latencyMs: Math.round((data?.took_s ?? 0) * 1000),
+      });
+      return res.ok ? { ok: true, data: data as RoomVerify } : { ok: false, error: data?.detail ?? 'errore' };
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+
+  consoleUrl(roomId: string, node: string): string {
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    return `${proto}://${window.location.host}/api/console/${roomId}/${encodeURIComponent(node)}`;
   }
 }
 

@@ -1,6 +1,6 @@
 import { HD_DENSITY, hdTextureKeys } from '../utils/hdTextures';
 import Phaser from 'phaser';
-import { EventBus, InteractiveSpotData, TimePhase } from '../EventBus';
+import { EventBus, InteractiveSpotData, RoomDevice, RoomRack, TimePhase } from '../EventBus';
 import {
   gridToScreen,
   screenToGrid,
@@ -45,6 +45,13 @@ export class OfficeScene extends Phaser.Scene {
   private promptText!: Phaser.GameObjects.Text;
   private promptIcon!: Phaser.GameObjects.Text;
   private windowSprite: Phaser.GameObjects.Image | null = null;
+
+  // Dispositivi generati dal lab CML della stanza (1:1 con i nodi)
+  private deviceObjects: Phaser.GameObjects.GameObject[] = [];
+  private deviceSpots: InteractiveSpotData[] = [];
+  private deviceSolid = new Set<string>();
+  private devicesByRoom: Record<string, RoomDevice[]> = {};
+  private racksByRoom: Record<string, RoomRack[]> = {};
 
   constructor() {
     super('OfficeScene');
@@ -102,7 +109,7 @@ export class OfficeScene extends Phaser.Scene {
     const handleNavigateTo = (data: { tileX?: number; tileY?: number; spotId?: string }) => {
       if (data.spotId) {
         let room = ROOM_CONFIGS[this.currentRoomId];
-        let spot = room.spots.find((s) => s.id === data.spotId);
+        let spot = this.spotsOf(room).find((s) => s.id === data.spotId);
 
         // If spot is not in current room, switch to the room containing it
         if (!spot) {
@@ -152,6 +159,26 @@ export class OfficeScene extends Phaser.Scene {
       this.speedMultiplier = 1.6;
     };
 
+    const handleSetRoomDevices = (payload: { roomId: string; racks: RoomRack[]; devices: RoomDevice[] }) => {
+      this.devicesByRoom[payload.roomId] = payload.devices;
+      this.racksByRoom[payload.roomId] = payload.racks;
+      if (payload.roomId === this.currentRoomId) this.renderDevices();
+    };
+
+    // Con un terminale o l'armadio aperti la tastiera serve a scrivere: Phaser non deve catturarla
+    const handleInputEnabled = (enabled: boolean) => {
+      const kb = this.input.keyboard;
+      if (!kb) return;
+      kb.enabled = enabled;
+      if (enabled) kb.enableGlobalCapture();
+      else {
+        kb.disableGlobalCapture();
+        kb.resetKeys();
+      }
+    };
+    EventBus.on('SET_INPUT_ENABLED', handleInputEnabled);
+
+    EventBus.on('SET_ROOM_DEVICES', handleSetRoomDevices);
     EventBus.on('NAVIGATE_TO', handleNavigateTo);
     EventBus.on('CHANGE_ROOM', handleChangeRoom);
     EventBus.on('SET_TIME_PHASE', handleSetTimePhase);
@@ -159,6 +186,8 @@ export class OfficeScene extends Phaser.Scene {
     EventBus.on('TRIGGER_COFFEE_BOOST', handleTriggerCoffeeBoost);
 
     this.events.once('shutdown', () => {
+      EventBus.off('SET_ROOM_DEVICES', handleSetRoomDevices);
+      EventBus.off('SET_INPUT_ENABLED', handleInputEnabled);
       EventBus.off('NAVIGATE_TO', handleNavigateTo);
       EventBus.off('CHANGE_ROOM', handleChangeRoom);
       EventBus.off('SET_TIME_PHASE', handleSetTimePhase);
@@ -377,6 +406,9 @@ export class OfficeScene extends Phaser.Scene {
       this.roomObjects.push(sprite);
     });
 
+    // 4b. Dispositivi di rete: esattamente i nodi del lab CML della stanza
+    this.renderDevices();
+
     // 5. Spawn NPCs with ground shadows
     config.npcs.forEach((npc) => {
       const pos = this.projectPosition(npc.gridX, npc.gridY);
@@ -541,7 +573,7 @@ export class OfficeScene extends Phaser.Scene {
         this.targetWaypoint = null;
         if (finishedWaypoint.spotId) {
           const room = ROOM_CONFIGS[this.currentRoomId];
-          const spot = room.spots.find((s) => s.id === finishedWaypoint.spotId);
+          const spot = this.spotsOf(room).find((s) => s.id === finishedWaypoint.spotId);
           if (spot) {
             this.activeSpot = spot;
             this.showPromptForSpot(spot);
@@ -623,7 +655,7 @@ export class OfficeScene extends Phaser.Scene {
     let nearestSpot: InteractiveSpotData | null = null;
     let minDistance = 1.6;
 
-    for (const spot of room.spots) {
+    for (const spot of this.spotsOf(room)) {
       const d = Math.hypot(
         this.playerGridX - spot.interactX,
         this.playerGridY - spot.interactY
@@ -654,6 +686,110 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
+  private spotsOf(room: RoomConfig): InteractiveSpotData[] {
+    return room.id === this.currentRoomId ? [...room.spots, ...this.deviceSpots] : room.spots;
+  }
+
+  /** Disegna la rete della stanza dal lab CML: gli armadi (router, switch, server montati a rack)
+   *  e le postazioni (PC, stampante). Stessi nodi del lab, stato reale. */
+  private renderDevices(): void {
+    this.deviceObjects.forEach((o) => o.destroy());
+    this.deviceObjects = [];
+    this.deviceSpots = [];
+    this.deviceSolid.clear();
+    const room = ROOM_CONFIGS[this.currentRoomId];
+    const racks = this.racksByRoom[this.currentRoomId] || [];
+    const devices = this.devicesByRoom[this.currentRoomId] || [];
+    const used = new Set<string>();
+
+    const interactPoint = (gx: number, gy: number) => {
+      const around = [[1, 0], [0, 1], [1, 1], [-1, 0], [0, -1], [1, -1], [-1, 1]];
+      for (const [dx, dy] of around) {
+        const cx = Math.floor(gx) + dx, cy = Math.floor(gy) + dy;
+        if (cx > 0 && cx < 7 && cy > 0 && cy < 7 && room.solidGrid[cx][cy] === 0 && !used.has(`${cx},${cy}`)) {
+          return { ix: cx + 0.5, iy: cy + 0.5 };
+        }
+      }
+      return { ix: gx + 1, iy: gy };
+    };
+    const label = (x: number, y: number, text: string, color: number, gx: number, gy: number) => {
+      const t = this.add.text(x, y, text, {
+        fontFamily: 'monospace', fontSize: '8px', color: '#e2e8f0',
+        backgroundColor: '#0f172acc', padding: { x: 3, y: 1 }, resolution: 3,
+      }).setOrigin(0.5, 1).setDepth(getIsometricDepth(gx, gy, 8));
+      const led = this.add.circle(x - t.width / 2 - 4, y - 4, 2.5, color).setDepth(getIsometricDepth(gx, gy, 8));
+      this.deviceObjects.push(t, led);
+      return led;
+    };
+
+    // 1) Armadi di rete
+    racks.forEach((r) => {
+      const key = `${Math.floor(r.gx)},${Math.floor(r.gy)}`;
+      used.add(key);
+      this.deviceSolid.add(key);
+      const pos = this.projectPosition(r.gx, r.gy);
+      const on = r.booted === r.devices.length && r.devices.length > 0;
+      const shadow = this.add.ellipse(pos.x, pos.y + 4, 48, 20, 0x020617, 0.4).setDepth(getIsometricDepth(r.gx, r.gy, 1));
+      const sprite = this.add.sprite(pos.x, pos.y, 'furniture_rack_sw1_sheet', 0);
+      if (hdTextureKeys.has('furniture_rack_sw1_sheet')) sprite.setScale(1 / HD_DENSITY);
+      sprite.setOrigin(0.5, 0.85).setDepth(getIsometricDepth(r.gx, r.gy, 5));
+      if (on && this.anims.exists('rack-sw1-blink')) sprite.play('rack-sw1-blink');
+      if (!on) sprite.setTint(0x64748b);
+      this.deviceObjects.push(shadow, sprite);
+      const led = label(pos.x, pos.y - 74, `ARMADIO ${r.id}`, !on ? 0x475569 : r.alert ? 0xf59e0b : 0x22c55e, r.gx, r.gy);
+      if (on && r.alert) this.tweens.add({ targets: led, alpha: 0.2, duration: 450, yoyo: true, repeat: -1 });
+      const { ix, iy } = interactPoint(r.gx, r.gy);
+      this.deviceSpots.push({
+        id: `rack:${r.id}`, name: r.label, tag: `ARMADIO DI RETE · ${r.devices.join(', ')}`,
+        desc: on ? 'Porte, cavi e cavo console' : `Apparati accesi ${r.booted}/${r.devices.length}`,
+        icon: '🗄️', actionText: 'APRI ARMADIO', tileX: r.gx, tileY: r.gy, interactX: ix, interactY: iy,
+        cmlRack: r.id,
+      });
+    });
+
+    // 2) Postazioni: PC sulle scrivanie, stampante
+    devices.forEach((d) => {
+      if (!d.game) return;
+      const { gx, gy } = d.game;
+      const key = `${Math.floor(gx)},${Math.floor(gy)}`;
+      if (used.has(key)) return;
+      used.add(key);
+      this.deviceSolid.add(key);
+      const pos = this.projectPosition(gx, gy);
+      const on = d.state === 'BOOTED';
+      const shadow = this.add.ellipse(pos.x, pos.y + 4, 44, 18, 0x020617, 0.35).setDepth(getIsometricDepth(gx, gy, 1));
+      this.deviceObjects.push(shadow);
+      if (d.kind === 'printer') {
+        const g = this.add.graphics().setDepth(getIsometricDepth(gx, gy, 5));
+        g.fillStyle(0xe2e8f0, 1).fillRect(pos.x - 13, pos.y - 22, 26, 16);
+        g.fillStyle(0x94a3b8, 1).fillRect(pos.x - 13, pos.y - 8, 26, 4);
+        g.fillStyle(0xf8fafc, 1).fillRect(pos.x - 8, pos.y - 30, 16, 9);
+        g.fillStyle(on ? 0x22c55e : 0x475569, 1).fillCircle(pos.x + 9, pos.y - 17, 1.6);
+        this.deviceObjects.push(g);
+      } else {
+        const desk = this.add.sprite(pos.x, pos.y, 'furniture_desk', 0);
+        if (hdTextureKeys.has('furniture_desk')) desk.setScale(1 / HD_DENSITY);
+        desk.setOrigin(0.5, 0.85).setDepth(getIsometricDepth(gx, gy, 5));
+        const g = this.add.graphics().setDepth(getIsometricDepth(gx, gy, 6));
+        g.fillStyle(0x0f172a, 1).fillRect(pos.x - 9, pos.y - 46, 18, 13);
+        g.fillStyle(on ? (d.linksUp === d.linksTotal ? 0x38bdf8 : 0xef4444) : 0x1e293b, 1).fillRect(pos.x - 7.5, pos.y - 44.5, 15, 10);
+        g.fillStyle(0x334155, 1).fillRect(pos.x - 1.5, pos.y - 33, 3, 4);
+        this.deviceObjects.push(desk, g);
+      }
+      const ok = on && d.linksUp === d.linksTotal && d.linksTotal > 0;
+      const led = label(pos.x, pos.y - 58, d.label, !on ? 0x475569 : ok ? 0x22c55e : 0xef4444, gx, gy);
+      if (on && !ok) this.tweens.add({ targets: led, alpha: 0.2, duration: 450, yoyo: true, repeat: -1 });
+      const { ix, iy } = interactPoint(gx, gy);
+      this.deviceSpots.push({
+        id: `cml:${d.label}`, name: d.display, tag: `${d.kind === 'printer' ? 'STAMPANTE' : 'PC'} · ${d.label}`,
+        desc: on ? (ok ? 'Cavo di rete collegato' : 'Cavo di rete staccato') : `Stato CML: ${d.state}`,
+        icon: d.kind === 'printer' ? '🖨️' : '🖥️',
+        actionText: d.kind === 'printer' ? 'PANNELLO STAMPANTE' : 'USA IL PC',
+        tileX: gx, tileY: gy, interactX: ix, interactY: iy, cmlNode: d.label,
+      });
+    });
+  }
+
   private projectPosition(gx: number, gy: number): { x: number; y: number } {
     const p = gridToScreen(gx, gy);
     if (this.currentRoomId === 'office') p.y -= officeElevation(gx, gy);
@@ -667,6 +803,7 @@ export class OfficeScene extends Phaser.Scene {
     const cellX = Math.floor(gx);
     const cellY = Math.floor(gy);
     if (cellX >= 0 && cellX < 8 && cellY >= 0 && cellY < 8) {
+      if (room.id === this.currentRoomId && this.deviceSolid.has(`${cellX},${cellY}`)) return false;
       return room.solidGrid[cellX][cellY] === 0;
     }
     return true;

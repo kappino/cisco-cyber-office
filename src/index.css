@@ -67,3 +67,13 @@ body { background: #101f29; }
 .partenope-office .bg-slate-800\/80 { background:#213b46; border-color:#42616a; }
 @media(min-width:1024px) { .partenope-office #phaser-game-container { max-width:none; } }
 @media(max-width:600px) { .partenope-office { border-radius:0; } .partenope-office > header { padding:12px; } .studio-heading { padding:22px 18px 18px; } .studio-heading h1 {font-size:34px;} .studio-heading p {font-size:11px;max-width:220px;} .studio-status {display:none;} .partenope-office > main {padding:0 8px 10px;} }
+
+/* LED delle porte (codifica del LED STAT Cisco Catalyst) */
+@keyframes led-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.15; } }
+@keyframes led-green-amber { 0%, 49% { background-color: #34d399; box-shadow: 0 0 6px #34d399; } 50%, 100% { background-color: #fbbf24; box-shadow: 0 0 6px #fbbf24; } }
+.led-green { background-color: #34d399; box-shadow: 0 0 6px #34d399; }
+.led-green-blink { background-color: #34d399; box-shadow: 0 0 6px #34d399; animation: led-blink 0.25s steps(1) infinite; }
+.led-amber { background-color: #fbbf24; box-shadow: 0 0 6px #fbbf24; }
+.led-amber-blink { background-color: #fbbf24; box-shadow: 0 0 6px #fbbf24; animation: led-blink 0.8s steps(1) infinite; }
+.led-green-amber { animation: led-green-amber 0.8s steps(1) infinite; }
+.led-off { background-color: #334155; }

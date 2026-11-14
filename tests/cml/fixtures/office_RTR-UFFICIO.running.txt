@@ -1,0 +1,156 @@
+terminal length 0
+RTR-UFFICIO#show running-config
+Building configuration...
+
+Current configuration : 4022 bytes
+!
+! Last configuration change at 14:47:46 UTC Sat Nov 14 2026
+!
+version 17.18
+service timestamps debug datetime msec
+service timestamps log datetime msec
+!
+hostname RTR-UFFICIO
+!
+boot-start-marker
+boot-end-marker
+!
+!
+no aaa new-model
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+ip dhcp excluded-address 10.10.10.1 10.10.10.49
+ip dhcp excluded-address 10.10.20.1 10.10.20.49
+!
+ip dhcp pool MARKETING
+ network 10.10.10.0 255.255.255.0
+ default-router 10.10.10.1 
+ dns-server 10.10.30.10 
+!
+ip dhcp pool AMMINISTRAZIONE
+ network 10.10.20.0 255.255.255.0
+ default-router 10.10.20.1 
+ dns-server 10.10.30.10 
+!
+!
+!
+no ip domain lookup
+ip cef
+login on-success log
+no ipv6 cef
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+memory free low-watermark processor 79866
+!
+!
+spanning-tree mode rapid-pvst
+!
+!
+!
+!
+!
+!
+!
+! 
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+interface Ethernet0/0
+ description TRUNK verso SW-PIANO1 Et0/0
+ no ip address
+!
+interface Ethernet0/0.10
+ description VLAN10 MARKETING
+ encapsulation dot1Q 10
+ ip address 10.10.10.1 255.255.255.0
+!
+interface Ethernet0/0.20
+ description VLAN20 AMMINISTRAZIONE
+ encapsulation dot1Q 20
+ ip address 10.10.20.1 255.255.255.0
+!
+interface Ethernet0/0.30
+ description VLAN30 SERVIZI (stampanti)
+ encapsulation dot1Q 30
+ ip address 10.10.30.1 255.255.255.0
+!
+interface Ethernet0/0.99
+ description VLAN99 GESTIONE
+ encapsulation dot1Q 99
+ ip address 10.10.99.1 255.255.255.0
+!
+interface Ethernet0/1
+ no ip address
+ shutdown
+!
+interface Ethernet0/2
+ no ip address
+ shutdown
+!
+interface Ethernet0/3
+ no ip address
+ shutdown
+!
+ip forward-protocol nd
+!
+!
+ip http server
+ip http secure-server
+ip ssh bulk-mode 131072
+no logging btrace
+!
+!
+!
+control-plane
+!
+!
+!
+line con 0
+ exec-timeout 0 0
+ activation-character 13
+ logging synchronous
+line aux 0
+ activation-character 13
+line vty 0 4
+ activation-character 13
+ login
+ transport input ssh
+!
+!
+!
+!
+end
+
+RTR-UFFICIO#

@@ -236,7 +236,11 @@ class CMLService:
         return await self.sync_room_lab("corridor")
 
     async def sync_room_lab(self, room_id: str) -> Dict[str, Any]:
-        """Stop other labs and ensure/start the realistic YAML lab mapped to the player's room."""
+        """Stop other labs and ensure/start the realistic YAML lab mapped to the player's room.
+
+        NON USATA: il cambio stanza passa da `backend/room_labs.py` (RoomManager), con le stanze in
+        `backend/rooms/*.yaml`. Qui resta solo per compatibilita'; i file `missions/room_*.yaml` sono stati
+        rimossi perche' definivano gli stessi lab FuoriRete_Room_* con topologie diverse."""
         t0 = time.perf_counter()
         target_title = ROOM_LAB_MAP.get(room_id, ROOM_LAB_MAP["corridor"])
         yaml_file = MISSIONS_DIR / f"room_{room_id}.yaml"

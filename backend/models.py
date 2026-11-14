@@ -15,7 +15,7 @@ class PatchRequest(BaseModel):
 class TerminalCommandRequest(BaseModel):
     """Cisco IOS CLI command forwarded from CrtTerminalGame."""
 
-    node: str = Field("SW-CORE-01", description="Target CML node label")
+    node: str = Field("SW-ACC", description="Target CML node label (nodo della stanza attiva)")
     command: str = Field(..., description="IOS command string entered by the player")
 
 
@@ -55,3 +55,12 @@ class RoomSyncRequest(BaseModel):
     """Sync CML active lab with the player's current game room."""
 
     room_id: str = Field(..., description="Current room ID: office | corridor | datacenter_vault")
+
+
+class CableRequest(BaseModel):
+    """Operazione su un cavo del lab della stanza."""
+    action: str = Field(..., description="'connect' | 'disconnect' | 'move' | 'unplug' | 'plug'")
+    node: str = Field(..., description="Nodo CML a un capo del cavo")
+    iface: str = Field(..., description="Interfaccia di quel nodo (es. 'Ethernet0/1', 'eth0')")
+    to_node: Optional[str] = Field(None, description="Solo 'move': nodo di destinazione")
+    to_iface: Optional[str] = Field(None, description="Solo 'move': porta libera di destinazione")

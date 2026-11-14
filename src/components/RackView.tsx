@@ -1,0 +1,450 @@
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { X, Cable, AlertTriangle, Unplug, ClipboardCheck, CheckCircle2, XCircle, LifeBuoy } from 'lucide-react';
+import { sound } from '../utils/audio';
+import { infraBridge, LedState, PortLed, RoomPorts, RoomTopology, RoomTopologyDevice, RoomInterface, RoomVerify } from '../utils/infraBridge';
+import { CmlConsole } from './CmlDevicePanel';
+
+interface Props {
+  roomId: string;
+  rackId: string;
+  topology: RoomTopology | null;
+  onTopology: (t: RoomTopology) => void;
+  onClose: () => void;
+}
+
+type PortRef = { node: string; iface: string };
+const key = (p: PortRef) => `${p.node}|${p.iface}`;
+const short = (iface: string) => iface.replace('Ethernet', 'Et').replace('Port-channel', 'Po');
+const KIND_ORDER: Record<string, number> = { router: 0, switch: 1, server: 2 };
+const KIND_NAME: Record<string, string> = { router: 'Router IOS', switch: 'Switch L2 gestito', server: 'Server 1U' };
+
+/**
+ * Armadio di rete della stanza, generato dal lab CML: patch panel con le prese dei PC,
+ * ogni apparato con tutte le sue porte e i LED letti dagli apparati veri, cavi tra le porte,
+ * cavo console da inserire nella porta CON del dispositivo che si vuole configurare.
+ */
+export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology, onClose }) => {
+  const [ports, setPorts] = useState<RoomPorts | null>(null);
+  const [selected, setSelected] = useState<PortRef | null>(null);
+  const [holdingConsole, setHoldingConsole] = useState(false);
+  const [consoleOn, setConsoleOn] = useState<string | null>(() => {
+    try { return localStorage.getItem(`fr_console_${roomId}`); } catch { return null; }
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [verify, setVerify] = useState<RoomVerify | null>(null);
+  // aiuto alla diagnosi: il motivo dello stato dei LED si mostra solo se il giocatore lo chiede
+  const [diagHelp, setDiagHelp] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [paths, setPaths] = useState<{ id: string; d: string; color: string; dashed: boolean }[]>([]);
+  const inner = useRef<HTMLDivElement>(null);
+  const portEls = useRef(new Map<string, HTMLElement>());
+
+  // LED reali: letti dagli apparati ogni 8 s mentre l'armadio e' aperto, piu' letture extra
+  // subito dopo un cambiamento (cavo, comando di configurazione dalla console)
+  const refreshTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      const p = await infraBridge.getRoomPorts(roomId);
+      if (alive && p) setPorts(p);
+    };
+    void tick();
+    const t = setInterval(tick, 8000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+      refreshTimers.current.forEach(clearTimeout);
+    };
+  }, [roomId]);
+  const refreshSoon = useCallback((delaysMs: number[]) => {
+    for (const ms of delaysMs) {
+      refreshTimers.current.push(setTimeout(async () => {
+        const p = await infraBridge.getRoomPorts(roomId, true);
+        if (p) setPorts(p);
+      }, ms));
+    }
+  }, [roomId]);
+
+  useEffect(() => {
+    try {
+      if (consoleOn) localStorage.setItem(`fr_console_${roomId}`, consoleOn);
+      else localStorage.removeItem(`fr_console_${roomId}`);
+    } catch { /* storage non disponibile */ }
+  }, [consoleOn, roomId]);
+
+  const devices = topology?.devices ?? [];
+  const byLabel = useMemo(() => new Map(devices.map((d) => [d.label, d])), [devices]);
+  const racks = topology?.racks ?? [];
+
+  const findIface = (p: PortRef): RoomInterface | undefined =>
+    byLabel.get(p.node)?.interfaces.find((i) => i.label === p.iface);
+
+  // disegno dei cavi: centri delle porte, curve di Bezier
+  const recompute = useCallback(() => {
+    const box = inner.current?.getBoundingClientRect();
+    if (!box || !topology) return;
+    const center = (k: string) => {
+      const el = portEls.current.get(k);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.left - box.left + r.width / 2, y: r.top - box.top + r.height / 2 };
+    };
+    const out: typeof paths = [];
+    for (const l of topology.links) {
+      const a = center(key(l.a)), b = center(key(l.b));
+      if (!a || !b) continue;
+      const da = byLabel.get(l.a.node), db = byLabel.get(l.b.node);
+      const infra = (d?: RoomTopologyDevice) => d?.kind === 'router' || d?.kind === 'switch';
+      const color = infra(da) && infra(db) ? '#facc15' : da?.kind === 'server' || db?.kind === 'server' ? '#f87171' : '#38bdf8';
+      const sag = Math.max(40, Math.abs(a.x - b.x) * 0.25);
+      out.push({
+        id: l.id,
+        d: `M ${a.x} ${a.y} C ${a.x} ${a.y + sag}, ${b.x} ${b.y + sag}, ${b.x} ${b.y}`,
+        color,
+        dashed: l.state !== 'STARTED',
+      });
+    }
+    if (consoleOn) {
+      const a = center(`${consoleOn}|CON`);
+      const b = center('LAPTOP|CON');
+      if (a && b) out.push({ id: 'console', d: `M ${a.x} ${a.y} C ${a.x} ${a.y + 80}, ${b.x} ${b.y - 80}, ${b.x} ${b.y}`, color: '#7dd3fc', dashed: false });
+    }
+    setPaths(out);
+  }, [topology, byLabel, consoleOn]);
+
+  useLayoutEffect(() => { recompute(); }, [recompute, ports]);
+  useEffect(() => {
+    if (!inner.current) return;
+    const ro = new ResizeObserver(() => recompute());
+    ro.observe(inner.current);
+    window.addEventListener('resize', recompute);
+    return () => { ro.disconnect(); window.removeEventListener('resize', recompute); };
+  }, [recompute]);
+
+  // porte appena collegate: spente finche' non arriva una lettura successiva al collegamento
+  // (su uno switch vero il link impiega 1-3 s a salire, poi STP decide verde o ambra)
+  const [linking, setLinking] = useState<Record<string, number>>({});
+  const run = async (body: Parameters<typeof infraBridge.cable>[1]) => {
+    setBusy(true);
+    setError(null);
+    const before = new Set((topology?.links ?? []).map((l) => `${key(l.a)}~${key(l.b)}`));
+    const res = await infraBridge.cable(roomId, body);
+    setBusy(false);
+    if (res.ok && res.topology) {
+      const now = Date.now();
+      const fresh: Record<string, number> = {};
+      for (const l of res.topology.links) {
+        if (!before.has(`${key(l.a)}~${key(l.b)}`)) { fresh[key(l.a)] = now; fresh[key(l.b)] = now; }
+      }
+      if (body.action === 'plug') { fresh[key({ node: body.node, iface: body.iface })] = now; }
+      setLinking((prev) => ({ ...prev, ...fresh }));
+      onTopology(res.topology);
+      sound.playClick();
+      // il link sale, poi STP: subito (portfast) o dopo ~30 s di ambra (senza portfast)
+      refreshSoon([1500, 4000, 16000, 32000]);
+    } else setError(res.error ?? 'operazione non riuscita');
+  };
+
+  const onPortClick = (p: PortRef) => {
+    if (busy) return;
+    setError(null);
+    if (holdingConsole) {
+      setError('Il cavo console va nella porta CON (azzurra) di un apparato.');
+      return;
+    }
+    const here = findIface(p);
+    if (!selected) {
+      setSelected(p);
+      return;
+    }
+    if (key(selected) === key(p)) {
+      setSelected(null);
+      if (here?.connected) void run({ action: 'disconnect', node: p.node, iface: p.iface });
+      return;
+    }
+    const sel = findIface(selected);
+    if (here?.connected) {
+      setError(`${p.node} ${p.iface} è già occupata: prima togli quel cavo.`);
+      return;
+    }
+    setSelected(null);
+    if (sel?.connected && sel.peer) {
+      // il cavo di `selected` si sposta su `p`; l'altro capo resta dov'è
+      void run({ action: 'move', node: sel.peer.node, iface: sel.peer.iface, to_node: p.node, to_iface: p.iface });
+    } else {
+      void run({ action: 'connect', node: selected.node, iface: selected.iface, to_node: p.node, to_iface: p.iface });
+    }
+  };
+
+  const runVerify = async () => {
+    setVerifying(true);
+    setError(null);
+    const res = await infraBridge.verifyRoom(roomId);
+    setVerifying(false);
+    if (res.ok && res.data) setVerify(res.data);
+    else setError(res.error ?? 'verifica non riuscita');
+  };
+
+  const onConsolePort = (label: string) => {
+    setError(null);
+    setSelected(null);
+    if (holdingConsole) {
+      setConsoleOn(label);
+      setHoldingConsole(false);
+      sound.playClick();
+    } else if (consoleOn === label) {
+      setConsoleOn(null);
+    } else {
+      setError('Prendi il cavo console (in basso) e poi inseriscilo nella porta CON.');
+    }
+  };
+
+  // stato del LED: letto dall'apparato (codifica Cisco), ma spento se in CML il cavo e' fermo o assente
+  const portInfo = (d: RoomTopologyDevice, i: RoomInterface): PortLed | undefined => {
+    const v = ports?.ports?.[d.label]?.[i.label];
+    return v && typeof v === 'object' ? (v as PortLed) : undefined;
+  };
+  const ledOf = (d: RoomTopologyDevice, i: RoomInterface): LedState => {
+    if (d.state !== 'BOOTED' || !i.connected || i.link_state !== 'STARTED') return 'off';
+    const since = linking[key({ node: d.label, iface: i.label })];
+    if (since && (!ports?.read_at || ports.read_at * 1000 < since + 800)) return 'off';  // link in negoziazione
+    return portInfo(d, i)?.led ?? 'green';
+  };
+  const LED_CLASS: Record<LedState, string> = {
+    off: 'led-off', green: 'led-green', green_blink: 'led-green-blink',
+    amber: 'led-amber', amber_blink: 'led-amber-blink', green_amber: 'led-green-amber',
+  };
+  const ledCls = (l: LedState) => LED_CLASS[l];
+  const systOf = (d: RoomTopologyDevice): LedState => {
+    if (d.state !== 'BOOTED') return d.state === 'STARTED' || d.state === 'QUEUED' ? 'amber' : 'off';
+    return ports?.ports?.[d.label]?._syst === 'amber' ? 'amber' : 'green';
+  };
+
+  const portRef = (k: string) => (el: HTMLElement | null) => {
+    if (el) portEls.current.set(k, el);
+    else portEls.current.delete(k);
+  };
+
+  const renderPort = (d: RoomTopologyDevice, i: RoomInterface, caption?: string) => {
+    const p = { node: d.label, iface: i.label };
+    const led = ledOf(d, i);
+    const info = portInfo(d, i);
+    const isSel = selected && key(selected) === key(p);
+    return (
+      <button
+        key={i.label}
+        onClick={() => onPortClick(p)}
+        title={`${d.label} ${i.label}${i.peer ? ` → ${i.peer.node} ${i.peer.iface}` : ' (libera)'}${diagHelp ? (i.connected && i.link_state !== 'STARTED' ? ' · cavo staccato' : info ? ` · ${info.status}` : '') : ''}`}
+        className={`p-1.5 rounded border text-left transition-all min-w-[64px] ${
+          isSel ? 'bg-cyan-500/20 border-cyan-400 ring-2 ring-cyan-400/50 scale-105'
+            : i.connected ? 'bg-slate-950 border-emerald-600/50' : 'bg-slate-950/80 border-slate-700 hover:border-cyan-500/70'
+        }`}
+      >
+        <div className="flex items-center justify-between gap-1">
+          <span className="font-mono text-[10px] font-bold text-white">{caption ?? short(i.label)}</span>
+          <span className={`w-2 h-2 rounded-full ${ledCls(led)}`} />
+        </div>
+        <div className="text-[9px] font-mono text-slate-400 truncate">
+          {info ? (info.vlan === 'trunk' ? 'trunk' : info.vlan) : i.connected ? '' : 'libera'}
+        </div>
+        <div ref={portRef(key(p))} className="mt-1 h-4 bg-black rounded-sm border border-slate-800 flex items-center justify-center">
+          {i.connected ? <div className="w-4 h-2.5 rounded-[2px] bg-sky-400/80" /> : <div className="w-3 h-2 bg-slate-900 border border-slate-800 rounded-[1px]" />}
+        </div>
+      </button>
+    );
+  };
+
+  const renderConsolePort = (d: RoomTopologyDevice) => (
+    <button
+      onClick={() => onConsolePort(d.label)}
+      title="Porta console (RJ45 azzurra)"
+      className={`p-1.5 rounded border min-w-[52px] ${consoleOn === d.label ? 'border-sky-300 bg-sky-500/20' : holdingConsole ? 'border-sky-400 animate-pulse bg-sky-900/30' : 'border-sky-800 bg-slate-950'}`}
+    >
+      <div className="font-mono text-[10px] font-bold text-sky-300">CON</div>
+      <div ref={portRef(`${d.label}|CON`)} className="mt-1 h-4 bg-black rounded-sm border border-sky-900 flex items-center justify-center">
+        {consoleOn === d.label ? <div className="w-4 h-2.5 rounded-[2px] bg-sky-300" /> : <div className="w-3 h-2 bg-slate-900 border border-sky-900 rounded-[1px]" />}
+      </div>
+    </button>
+  );
+
+  const consoleDev = consoleOn ? byLabel.get(consoleOn) : undefined;
+  const consoleReady = topology?.status.phase === 'ready' && consoleDev?.state === 'BOOTED';
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-sm flex items-stretch justify-center p-1 sm:p-4" onClick={onClose}>
+      <div className="w-full max-w-6xl flex flex-col bg-slate-900 border-2 border-slate-700 rounded-xl shadow-2xl font-mono overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <header className="flex items-center justify-between px-3 py-2 border-b border-slate-700 shrink-0">
+          <div className="min-w-0">
+            <div className="text-sm font-bold text-white">Armadio di rete · {topology?.lab_title}</div>
+            <div className="text-[10px] text-slate-400">
+              Clicca una porta e poi un'altra per collegarle · clicca un cavo e poi una porta libera per spostarlo · clicca due volte la stessa porta per togliere il cavo
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setDiagHelp((v) => !v)}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded border text-xs ${diagHelp ? 'border-amber-400 bg-amber-500/20 text-amber-100' : 'border-slate-600 text-slate-300 hover:bg-slate-800'}`}
+              title="Mostra il motivo dello stato dei LED passando sulle porte"
+            >
+              <LifeBuoy className="w-4 h-4" /> Aiuto diagnosi: {diagHelp ? 'sì' : 'no'}
+            </button>
+            <button
+              onClick={() => void runVerify()}
+              disabled={verifying}
+              className="flex items-center gap-1 px-3 py-1.5 rounded border border-emerald-500 text-emerald-200 text-xs hover:bg-emerald-500/20 disabled:opacity-50"
+              title="Confronta le configurazioni vere con il target e prova DHCP e ping"
+            >
+              <ClipboardCheck className="w-4 h-4" /> {verifying ? 'Verifico…' : 'Verifica'}
+            </button>
+            <button onClick={onClose} className="p-1 rounded hover:bg-slate-800" aria-label="Chiudi"><X className="w-4 h-4" /></button>
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-auto">
+          <div ref={inner} className="relative p-3 sm:p-4">
+            {(error || busy) && (
+              <div className={`mb-3 px-3 py-2 rounded border text-xs flex items-center gap-2 ${error ? 'bg-red-950/70 border-red-600 text-red-200' : 'bg-slate-800 border-slate-600 text-slate-200'}`}>
+                {error ? <><AlertTriangle className="w-4 h-4" /> {error}</> : 'Aggiorno il lab su CML…'}
+              </div>
+            )}
+
+            {verify && (
+              <div className={`mb-4 rounded-lg border-2 p-3 text-xs ${verify.ok ? 'border-emerald-500 bg-emerald-950/40' : 'border-amber-500 bg-amber-950/30'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2 font-bold text-sm">
+                    {verify.ok ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <XCircle className="w-5 h-5 text-amber-400" />}
+                    {verify.ok ? 'La rete corrisponde al target e funziona' : 'Ci sono differenze rispetto al target'}
+                  </div>
+                  <button onClick={() => setVerify(null)} className="text-slate-400 hover:text-white" aria-label="Chiudi verifica"><X className="w-4 h-4" /></button>
+                </div>
+                <div className="text-[10px] text-slate-400 mb-2">
+                  Letto dagli apparati veri in {verify.took_s} s · durante la verifica le console aperte restano in pausa
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <div className="font-bold text-slate-200 mb-1">Funziona?</div>
+                    {verify.checks.map((c) => (
+                      <div key={c.label} className="flex gap-2 items-start mb-0.5">
+                        <span className={c.ok ? 'text-emerald-400' : 'text-red-400'}>{c.ok ? '✓' : '✗'}</span>
+                        <span className="text-slate-200">{c.label}<span className="text-slate-500"> · {c.detail}</span></span>
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <div className="font-bold text-slate-200 mb-1">Configurazioni (running-config vs target)</div>
+                    {verify.devices.map((d) => (
+                      <div key={d.node} className="mb-2">
+                        <div className={d.ok ? 'text-emerald-300' : 'text-amber-300'}>
+                          {d.ok ? '✓' : '✗'} {d.node}{d.ok ? ' · identica al target' : d.error ? ` · ${d.error}` : ` · ${d.missing.length} mancanti, ${d.extra.length} in più`}
+                        </div>
+                        {d.missing.map((m, i) => (
+                          <div key={`m${i}`} className="pl-4 font-mono text-red-300">- {m.section ? <span className="text-slate-400">{m.section} › </span> : null}{m.line}</div>
+                        ))}
+                        {d.extra.map((m, i) => (
+                          <div key={`e${i}`} className="pl-4 font-mono text-amber-200">+ {m.section ? <span className="text-slate-400">{m.section} › </span> : null}{m.line}</div>
+                        ))}
+                      </div>
+                    ))}
+                    <div className="text-[10px] text-slate-500"><span className="text-red-300">-</span> previsto ma assente · <span className="text-amber-200">+</span> presente ma non previsto</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-4 items-start">
+              {racks.map((r) => {
+                const jacks = devices.filter((d) => d.jack?.rack === r.id);
+                const mounted = devices.filter((d) => d.rack === r.id).sort((a, b) => (KIND_ORDER[a.kind] ?? 9) - (KIND_ORDER[b.kind] ?? 9));
+                return (
+                  <div key={r.id} className={`flex-1 min-w-[300px] bg-slate-950 border-4 rounded-lg p-3 ${r.id === rackId ? 'border-slate-600' : 'border-slate-800'}`}>
+                    <div className="text-[10px] uppercase tracking-widest text-slate-500 mb-3 flex justify-between">
+                      <span>{r.label}</span><span>rack {r.id}</span>
+                    </div>
+
+                    {jacks.length > 0 && (
+                      <div className="bg-slate-800 border-2 border-slate-600 rounded-md p-2 mb-4">
+                        <div className="flex justify-between pb-1 mb-2 border-b border-slate-700 text-[10px]">
+                          <span className="font-bold text-slate-300">PATCH PANEL · prese a muro</span>
+                          <span className="text-slate-500">CAT6</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {jacks.map((h) => h.interfaces[0] && (
+                            <div key={h.label} className="flex flex-col items-center">
+                              {renderPort(h, h.interfaces[0], h.jack?.label)}
+                              <span className="text-[9px] text-slate-400 mt-0.5">{h.label}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {mounted.map((d) => (
+                      <div key={d.label} className={`rounded-md p-2 mb-4 border-2 ${d.kind === 'router' ? 'bg-slate-900 border-indigo-500/40' : d.kind === 'switch' ? 'bg-slate-900 border-cyan-500/40' : 'bg-slate-900 border-rose-500/40'}`}>
+                        <div className="flex items-center justify-between pb-1 mb-2 border-b border-slate-800">
+                          <div className="min-w-0">
+                            <span className="text-xs font-black text-white">{d.label}</span>
+                            <span className="ml-2 text-[10px] text-slate-400">{KIND_NAME[d.kind] ?? d.kind} · {d.display}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[9px] text-slate-400 shrink-0">
+                            <span className="flex items-center gap-1" title={ports?.ports?.[d.label]?._console_in_use ? 'console aperta: LED all\'ultima lettura' : ''}><span className={`w-2 h-2 rounded-full ${ledCls(systOf(d))}`} />SYST</span>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 items-end">
+                          {renderConsolePort(d)}
+                          {d.interfaces.map((i) => renderPort(d, i))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* portatile del tecnico con il cavo console */}
+            <div className="mt-2 flex flex-wrap items-center gap-3 bg-slate-800/70 border border-slate-700 rounded-lg p-2">
+              <div className="flex flex-col items-center">
+                <div className="text-[10px] text-slate-300 mb-1">Portatile del tecnico</div>
+                <div ref={portRef('LAPTOP|CON')} className="w-6 h-4 bg-black rounded-sm border border-sky-800" />
+              </div>
+              <button
+                onClick={() => { setSelected(null); setError(null); setHoldingConsole((v) => !v); }}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded border text-xs ${holdingConsole ? 'border-sky-300 bg-sky-500/20 text-sky-100' : 'border-sky-700 text-sky-300 hover:bg-sky-900/40'}`}
+              >
+                <Cable className="w-4 h-4" /> {holdingConsole ? 'Ora clicca la porta CON di un apparato' : consoleOn ? `Sposta il cavo console (ora su ${consoleOn})` : 'Prendi il cavo console'}
+              </button>
+              {consoleOn && (
+                <button onClick={() => setConsoleOn(null)} className="flex items-center gap-1 px-2 py-1.5 rounded border border-slate-600 text-xs text-slate-300 hover:bg-slate-700">
+                  <Unplug className="w-3.5 h-3.5" /> Scollega console
+                </button>
+              )}
+              <div className="text-[10px] text-slate-400 flex gap-3">
+                <span><span className="inline-block w-3 h-1 bg-yellow-400 align-middle" /> tra apparati</span>
+                <span><span className="inline-block w-3 h-1 bg-sky-400 align-middle" /> verso le prese</span>
+                <span><span className="inline-block w-3 h-1 bg-red-400 align-middle" /> verso i server</span>
+                <span><span className="inline-block w-2 h-2 rounded-full led-green-blink align-middle" /> traffico</span>
+                <span><span className="inline-block w-2 h-2 rounded-full led-amber align-middle" /> STP in verifica / err-disabled</span>
+                <span><span className="inline-block w-2 h-2 rounded-full led-amber-blink align-middle" /> bloccata da STP</span>
+                <span><span className="inline-block w-2 h-2 rounded-full led-green-amber align-middle" /> errori sul link</span>
+              </div>
+            </div>
+
+            {consoleOn && (
+              <div className="mt-3">
+                {consoleReady ? <CmlConsole key={consoleOn} roomId={roomId} node={consoleOn} height={300} onNetChange={() => refreshSoon([2000, 6000])} />
+                  : <div className="text-amber-300 text-xs">{consoleOn} non è ancora avviato: la console risponde quando il LED SYS è verde.</div>}
+              </div>
+            )}
+
+            <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
+              {paths.map((p) => (
+                <path key={p.id} d={p.d} fill="none" stroke={p.color} strokeWidth={3} strokeOpacity={0.85}
+                  strokeDasharray={p.dashed ? '6 5' : undefined} strokeLinecap="round" />
+              ))}
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};

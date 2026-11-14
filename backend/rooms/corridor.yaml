@@ -1,0 +1,221 @@
+# Stanza "corridor" (Corridoio operativo / armadio di rete) -> lab FuoriRete_Room_Corridor
+# Distribuzione a due livelli: SW-DIST e SW-ACC uniti da un EtherChannel LACP (Po1)
+# piu' un collegamento di riserva che lo Spanning Tree deve bloccare.
+# SW-DIST e' root bridge; il router fa routing tra VLAN e DHCP per l'helpdesk.
+room_id: corridor
+lab_title: FuoriRete_Room_Corridor
+description: "Armadio di rete: EtherChannel LACP, Rapid-PVST con link ridondante bloccato, trunk, DHCP"
+
+racks:
+  - { id: A, label: "Armadio di rete di sede", gx: 1.0, gy: 1.0 }
+
+nodes:
+  - label: RTR-CORE
+    cml_def: iol-xe
+    kind: router
+    display: "Router di sede"
+    rack: A
+    cml_xy: [0, -250]
+    config: |
+      hostname RTR-CORE
+      no ip domain lookup
+      ip dhcp excluded-address 10.20.10.1 10.20.10.49
+      ip dhcp pool HELPDESK
+       network 10.20.10.0 255.255.255.0
+       default-router 10.20.10.1
+      interface Ethernet0/0
+       description TRUNK verso SW-DIST Et0/0
+       no shutdown
+      interface Ethernet0/0.10
+       description VLAN10 HELPDESK
+       encapsulation dot1Q 10
+       ip address 10.20.10.1 255.255.255.0
+      interface Ethernet0/0.50
+       description VLAN50 SERVER
+       encapsulation dot1Q 50
+       ip address 10.20.50.1 255.255.255.0
+      interface Ethernet0/0.99
+       description VLAN99 GESTIONE
+       encapsulation dot1Q 99
+       ip address 10.20.99.1 255.255.255.0
+      line con 0
+       exec-timeout 0 0
+       logging synchronous
+      end
+
+  - label: SW-DIST
+    cml_def: ioll2-xe
+    kind: switch
+    display: "Switch di distribuzione"
+    rack: A
+    cml_xy: [-150, -80]
+    min_interfaces: 8
+    config: |
+      hostname SW-DIST
+      vtp mode transparent
+      no ip domain lookup
+      vlan 10
+       name HELPDESK
+      vlan 50
+       name SERVER
+      vlan 99
+       name GESTIONE
+      vlan 999
+       name NATIVA-NON-USATA
+      spanning-tree mode rapid-pvst
+      spanning-tree vlan 1-4094 priority 4096
+      interface Ethernet0/0
+       description TRUNK verso RTR-CORE Et0/0
+       switchport trunk encapsulation dot1q
+       switchport mode trunk
+       switchport trunk native vlan 999
+       switchport trunk allowed vlan 10,50,99
+       switchport nonegotiate
+      interface range Ethernet0/1 - 2
+       description Po1 verso SW-ACC
+       switchport trunk encapsulation dot1q
+       switchport mode trunk
+       switchport trunk native vlan 999
+       switchport trunk allowed vlan 10,50,99
+       switchport nonegotiate
+       channel-group 1 mode active
+      interface Port-channel1
+       description EtherChannel LACP verso SW-ACC
+       switchport trunk encapsulation dot1q
+       switchport mode trunk
+       switchport trunk native vlan 999
+       switchport trunk allowed vlan 10,50,99
+       switchport nonegotiate
+      interface Ethernet0/3
+       description SRV-FILE
+       switchport mode access
+       switchport access vlan 50
+       spanning-tree portfast
+      interface Ethernet1/0
+       description RISERVA verso SW-ACC Et1/0 (fuori dal canale)
+       switchport trunk encapsulation dot1q
+       switchport mode trunk
+       switchport trunk native vlan 999
+       switchport trunk allowed vlan 10,50,99
+       switchport nonegotiate
+      interface Ethernet1/1
+       description presa libera (Server)
+       switchport mode access
+       switchport access vlan 50
+       spanning-tree portfast
+      interface Vlan99
+       ip address 10.20.99.2 255.255.255.0
+       no shutdown
+      ip default-gateway 10.20.99.1
+      line con 0
+       exec-timeout 0 0
+       logging synchronous
+      end
+
+  - label: SW-ACC
+    cml_def: ioll2-xe
+    kind: switch
+    display: "Switch d'accesso helpdesk"
+    rack: A
+    cml_xy: [150, -80]
+    min_interfaces: 8
+    config: |
+      hostname SW-ACC
+      vtp mode transparent
+      no ip domain lookup
+      vlan 10
+       name HELPDESK
+      vlan 50
+       name SERVER
+      vlan 99
+       name GESTIONE
+      vlan 999
+       name NATIVA-NON-USATA
+      spanning-tree mode rapid-pvst
+      interface range Ethernet0/1 - 2
+       description Po1 verso SW-DIST
+       switchport trunk encapsulation dot1q
+       switchport mode trunk
+       switchport trunk native vlan 999
+       switchport trunk allowed vlan 10,50,99
+       switchport nonegotiate
+       channel-group 1 mode active
+      interface Port-channel1
+       description EtherChannel LACP verso SW-DIST
+       switchport trunk encapsulation dot1q
+       switchport mode trunk
+       switchport trunk native vlan 999
+       switchport trunk allowed vlan 10,50,99
+       switchport nonegotiate
+      interface Ethernet0/3
+       description PC-HELPDESK
+       switchport mode access
+       switchport access vlan 10
+       spanning-tree portfast
+       spanning-tree bpduguard enable
+      interface Ethernet1/0
+       description RISERVA verso SW-DIST Et1/0 (fuori dal canale)
+       switchport trunk encapsulation dot1q
+       switchport mode trunk
+       switchport trunk native vlan 999
+       switchport trunk allowed vlan 10,50,99
+       switchport nonegotiate
+      interface Ethernet1/1
+       description presa libera (Helpdesk)
+       switchport mode access
+       switchport access vlan 10
+       spanning-tree portfast
+       spanning-tree bpduguard enable
+      interface Ethernet0/0
+       description NON USATA
+       switchport mode access
+       switchport access vlan 999
+       shutdown
+      interface Vlan99
+       ip address 10.20.99.3 255.255.255.0
+       no shutdown
+      ip default-gateway 10.20.99.1
+      line con 0
+       exec-timeout 0 0
+       logging synchronous
+      end
+
+  - label: PC-HELPDESK
+    cml_def: alpine
+    kind: pc
+    display: "PC di Ciro (Helpdesk)"
+    game: { gx: 5.0, gy: 1.0 }
+    jack: { rack: A, label: HD-01 }
+    cml_xy: [150, 150]
+    config: |
+      hostname PC-HELPDESK
+      ip link set eth0 up
+      udhcpc -i eth0 -b -q -t 10 -T 2 || true
+
+  - label: SRV-FILE
+    cml_def: alpine
+    kind: server
+    display: "File server di sede"
+    rack: A
+    cml_xy: [-150, 150]
+    config: |
+      hostname SRV-FILE
+      ip link set eth0 up
+      ip addr add 10.20.50.10/24 dev eth0
+      ip route add default via 10.20.50.1
+      (while true; do echo -e "HTTP/1.0 200 OK\r\n\r\nFile server di sede: condivisioni OK" | nc -l -p 80; done) >/dev/null 2>&1 &
+
+links:
+  - [RTR-CORE, Ethernet0/0, SW-DIST, Ethernet0/0]
+  - [SW-DIST, Ethernet0/1, SW-ACC, Ethernet0/1]
+  - [SW-DIST, Ethernet0/2, SW-ACC, Ethernet0/2]
+  - [SW-DIST, Ethernet1/0, SW-ACC, Ethernet1/0]
+  - [SW-DIST, Ethernet0/3, SRV-FILE, eth0]
+  - [SW-ACC, Ethernet0/3, PC-HELPDESK, eth0]
+
+# Controlli funzionali della verifica (oltre al diff delle configurazioni)
+checks:
+  - { from: PC-HELPDESK, dhcp: "10.20.10.", label: "PC Helpdesk riceve un indirizzo nella VLAN 10" }
+  - { from: PC-HELPDESK, ping: 10.20.10.1, label: "PC Helpdesk raggiunge il suo gateway" }
+  - { from: PC-HELPDESK, ping: 10.20.50.10, label: "PC Helpdesk raggiunge il file server (VLAN 50, attraverso Po1)" }
+  - { from: SRV-FILE, ping: 10.20.50.1, label: "Il file server raggiunge il suo gateway" }

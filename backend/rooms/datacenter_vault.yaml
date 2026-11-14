@@ -1,0 +1,204 @@
+# Stanza "datacenter_vault" (Datacenter, -1F) -> lab FuoriRete_Room_Datacenter
+# Due switch di rack uniti da un trunk 802.1Q: le VLAN SERVER (50) e BACKUP (60)
+# devono attraversare il trunk per arrivare ai server su entrambi gli switch.
+# Il router fa da gateway delle VLAN (router-on-a-stick). Nessun routing dinamico.
+room_id: datacenter_vault
+lab_title: FuoriRete_Room_Datacenter
+description: "Datacenter: due switch di rack con trunk 802.1Q, VLAN server e backup, router-on-a-stick"
+
+racks:
+  - { id: A, label: "Rack A (rete e gestionale)", gx: 1.0, gy: 1.0 }
+  - { id: B, label: "Rack B (backup)", gx: 4.0, gy: 1.0 }
+
+nodes:
+  - label: RTR-DC
+    cml_def: iol-xe
+    kind: router
+    display: "Router del datacenter"
+    rack: A
+    cml_xy: [0, -220]
+    config: |
+      hostname RTR-DC
+      no ip domain lookup
+      interface Ethernet0/0
+       description TRUNK verso SW-DC1 Et0/0
+       no shutdown
+      interface Ethernet0/0.50
+       description VLAN50 SERVER
+       encapsulation dot1Q 50
+       ip address 10.30.50.1 255.255.255.0
+      interface Ethernet0/0.60
+       description VLAN60 BACKUP
+       encapsulation dot1Q 60
+       ip address 10.30.60.1 255.255.255.0
+      interface Ethernet0/0.99
+       description VLAN99 GESTIONE
+       encapsulation dot1Q 99
+       ip address 10.30.99.1 255.255.255.0
+      line con 0
+       exec-timeout 0 0
+       logging synchronous
+      end
+
+  - label: SW-DC1
+    cml_def: ioll2-xe
+    kind: switch
+    display: "Switch di rack A"
+    rack: A
+    cml_xy: [-150, -60]
+    min_interfaces: 8
+    config: |
+      hostname SW-DC1
+      vtp mode transparent
+      no ip domain lookup
+      vlan 50
+       name SERVER
+      vlan 60
+       name BACKUP
+      vlan 99
+       name GESTIONE
+      vlan 999
+       name NATIVA-NON-USATA
+      spanning-tree mode rapid-pvst
+      interface Ethernet0/0
+       description TRUNK verso RTR-DC Et0/0
+       switchport trunk encapsulation dot1q
+       switchport mode trunk
+       switchport trunk native vlan 999
+       switchport trunk allowed vlan 50,60,99
+       switchport nonegotiate
+      interface Ethernet0/1
+       description TRUNK verso SW-DC2 Et0/1
+       switchport trunk encapsulation dot1q
+       switchport mode trunk
+       switchport trunk native vlan 999
+       switchport trunk allowed vlan 50,60,99
+       switchport nonegotiate
+      interface Ethernet0/2
+       description SRV-GESTIONALE
+       switchport mode access
+       switchport access vlan 50
+       spanning-tree portfast
+      interface Ethernet0/3
+       description presa libera (Server)
+       switchport mode access
+       switchport access vlan 50
+       spanning-tree portfast
+      interface Ethernet1/0
+       description presa libera (Backup)
+       switchport mode access
+       switchport access vlan 60
+       spanning-tree portfast
+      interface range Ethernet1/1 - 3
+       description NON USATA
+       switchport mode access
+       switchport access vlan 999
+       shutdown
+      interface Vlan99
+       ip address 10.30.99.2 255.255.255.0
+       no shutdown
+      ip default-gateway 10.30.99.1
+      line con 0
+       exec-timeout 0 0
+       logging synchronous
+      end
+
+  - label: SW-DC2
+    cml_def: ioll2-xe
+    kind: switch
+    display: "Switch di rack B"
+    rack: B
+    cml_xy: [150, -60]
+    min_interfaces: 8
+    config: |
+      hostname SW-DC2
+      vtp mode transparent
+      no ip domain lookup
+      vlan 50
+       name SERVER
+      vlan 60
+       name BACKUP
+      vlan 99
+       name GESTIONE
+      vlan 999
+       name NATIVA-NON-USATA
+      spanning-tree mode rapid-pvst
+      interface Ethernet0/1
+       description TRUNK verso SW-DC1 Et0/1
+       switchport trunk encapsulation dot1q
+       switchport mode trunk
+       switchport trunk native vlan 999
+       switchport trunk allowed vlan 50,60,99
+       switchport nonegotiate
+      interface Ethernet0/2
+       description SRV-BACKUP
+       switchport mode access
+       switchport access vlan 60
+       spanning-tree portfast
+      interface Ethernet0/3
+       description presa libera (Backup)
+       switchport mode access
+       switchport access vlan 60
+       spanning-tree portfast
+      interface Ethernet1/0
+       description presa libera (Server)
+       switchport mode access
+       switchport access vlan 50
+       spanning-tree portfast
+      interface Ethernet0/0
+       description NON USATA
+       switchport mode access
+       switchport access vlan 999
+       shutdown
+      interface range Ethernet1/1 - 3
+       description NON USATA
+       switchport mode access
+       switchport access vlan 999
+       shutdown
+      interface Vlan99
+       ip address 10.30.99.3 255.255.255.0
+       no shutdown
+      ip default-gateway 10.30.99.1
+      line con 0
+       exec-timeout 0 0
+       logging synchronous
+      end
+
+  - label: SRV-GESTIONALE
+    cml_def: alpine
+    kind: server
+    display: "Server del gestionale"
+    rack: A
+    cml_xy: [-150, 120]
+    config: |
+      hostname SRV-GESTIONALE
+      ip link set eth0 up
+      ip addr add 10.30.50.10/24 dev eth0
+      ip route add default via 10.30.50.1
+      (while true; do echo -e "HTTP/1.0 200 OK\r\n\r\nGestionale Torrefazione Partenope: ONLINE" | nc -l -p 80; done) >/dev/null 2>&1 &
+
+  - label: SRV-BACKUP
+    cml_def: alpine
+    kind: server
+    display: "Server di backup"
+    rack: B
+    cml_xy: [150, 120]
+    config: |
+      hostname SRV-BACKUP
+      ip link set eth0 up
+      ip addr add 10.30.60.10/24 dev eth0
+      ip route add default via 10.30.60.1
+      (while true; do echo -e "HTTP/1.0 200 OK\r\n\r\nBackup notturno: ultimo salvataggio OK" | nc -l -p 80; done) >/dev/null 2>&1 &
+
+links:
+  - [RTR-DC, Ethernet0/0, SW-DC1, Ethernet0/0]
+  - [SW-DC1, Ethernet0/1, SW-DC2, Ethernet0/1]
+  - [SW-DC1, Ethernet0/2, SRV-GESTIONALE, eth0]
+  - [SW-DC2, Ethernet0/2, SRV-BACKUP, eth0]
+
+# Controlli funzionali della verifica (oltre al diff delle configurazioni)
+checks:
+  - { from: SRV-GESTIONALE, ping: 10.30.50.1, label: "Il gestionale raggiunge il gateway VLAN 50" }
+  - { from: SRV-BACKUP, ping: 10.30.60.1, label: "Il backup raggiunge il gateway VLAN 60 (trunk tra i rack)" }
+  - { from: SRV-BACKUP, ping: 10.30.50.10, label: "Il backup raggiunge il gestionale (tra VLAN)" }
+  - { from: SRV-GESTIONALE, ping: 10.30.60.10, label: "Il gestionale raggiunge il backup" }
