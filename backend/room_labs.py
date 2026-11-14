@@ -642,7 +642,7 @@ class RoomManager:
         """Stato reale delle porte: switch `show interfaces status` + porte bloccate da STP,
         router `show ip interface brief`. LED: green / amber / off. Cache di 4 s."""
         hit = self._ports_cache.get(room_id)
-        if hit and time.time() - hit[0] < 4:
+        if hit and time.time() - hit[0] < 7:
             return hit[1]
         spec = room_spec(room_id)
         if self.status[room_id]["phase"] != "ready":
@@ -676,8 +676,13 @@ class RoomManager:
             return n["label"], res
 
         nodes = [n for n in spec["nodes"] if n.get("kind") in ("switch", "router") and n["cml_def"] in IOS_DEFS]
-        pairs = await asyncio.gather(*[asyncio.to_thread(read, n) for n in nodes])
-        out = {"room_id": room_id, "ready": True, "ports": dict(pairs), "read_at": time.time()}
+        busy = [n for n in nodes if OPEN_CONSOLES.get((spec["lab_title"], n["label"]))]
+        free = [n for n in nodes if n not in busy]
+        pairs = dict(await asyncio.gather(*[asyncio.to_thread(read, n) for n in free]))
+        previous = (hit[1]["ports"] if hit else {})
+        for n in busy:  # console in uso da un giocatore: nessun comando automatico, ultimo valore noto
+            pairs[n["label"]] = {**previous.get(n["label"], {}), "_console_in_use": True}
+        out = {"room_id": room_id, "ready": True, "ports": pairs, "read_at": time.time()}
         self._ports_cache[room_id] = (time.time(), out)
         return out
 
@@ -756,6 +761,11 @@ room_manager = RoomManager()
 # ---------------------------------------------------------------------------
 # Ponte console <-> WebSocket
 # ---------------------------------------------------------------------------
+# console aperte dai giocatori: (lab, nodo) -> numero di sessioni. La console seriale e' una linea
+# condivisa: su questi nodi il backend non manda comandi automatici (es. lettura dei LED).
+OPEN_CONSOLES: Dict[Tuple[str, str], int] = {}
+
+
 class ConsoleBridge:
     """Collega un canale termserv a una coda asyncio; per i nodi Linux fa il login da solo."""
 
@@ -771,6 +781,9 @@ class ConsoleBridge:
 
     def open(self) -> None:
         self.ssh, self.chan, rest = open_console(self.lab_title, self.node_label, self.cols, self.rows)
+        k = (self.lab_title, self.node_label)
+        OPEN_CONSOLES[k] = OPEN_CONSOLES.get(k, 0) + 1
+        self._registered = True
         self.chan.settimeout(0.5)
         if rest.strip():
             self._emit(rest)
@@ -815,6 +828,12 @@ class ConsoleBridge:
 
     def close(self) -> None:
         self._stop.set()
+        if getattr(self, "_registered", False):
+            k = (self.lab_title, self.node_label)
+            OPEN_CONSOLES[k] = max(0, OPEN_CONSOLES.get(k, 1) - 1)
+            if not OPEN_CONSOLES[k]:
+                OPEN_CONSOLES.pop(k, None)
+            self._registered = False
         try:
             if self.ssh:
                 self.ssh.close()

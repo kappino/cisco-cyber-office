@@ -38,7 +38,7 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
   const inner = useRef<HTMLDivElement>(null);
   const portEls = useRef(new Map<string, HTMLElement>());
 
-  // LED reali: letti dagli apparati ogni 4 s mentre l'armadio e' aperto
+  // LED reali: letti dagli apparati ogni 8 s mentre l'armadio e' aperto (mai su una console in uso)
   useEffect(() => {
     let alive = true;
     const tick = async () => {
@@ -46,7 +46,7 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
       if (alive && p) setPorts(p);
     };
     void tick();
-    const t = setInterval(tick, 4000);
+    const t = setInterval(tick, 8000);
     return () => { alive = false; clearInterval(t); };
   }, [roomId]);
 
@@ -173,8 +173,8 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
 
   const ledOf = (d: RoomTopologyDevice, i: RoomInterface): 'green' | 'amber' | 'off' => {
     if (d.state !== 'BOOTED') return 'off';
-    const real = ports?.ports?.[d.label]?.[i.label];
-    if (real) return i.connected ? real.led : 'off';
+    const real = ports?.ports?.[d.label]?.[i.label] as { led?: 'green' | 'amber' | 'off' } | undefined;
+    if (real && real.led) return i.connected ? real.led : 'off';
     return i.connected && i.link_state === 'STARTED' ? 'green' : 'off';
   };
   const ledCls = (l: 'green' | 'amber' | 'off') =>
@@ -270,7 +270,9 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
                   </div>
                   <button onClick={() => setVerify(null)} className="text-slate-400 hover:text-white" aria-label="Chiudi verifica"><X className="w-4 h-4" /></button>
                 </div>
-                <div className="text-[10px] text-slate-400 mb-2">Letto dagli apparati veri in {verify.took_s} s</div>
+                <div className="text-[10px] text-slate-400 mb-2">
+                  Letto dagli apparati veri in {verify.took_s} s · i comandi di lettura (show running-config, ping) compaiono anche nelle console aperte
+                </div>
                 <div className="grid gap-3 md:grid-cols-2">
                   <div>
                     <div className="font-bold text-slate-200 mb-1">Funziona?</div>
