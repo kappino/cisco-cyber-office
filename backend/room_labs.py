@@ -165,6 +165,9 @@ def open_console(lab_title: str, node_label: str, width: int = 120, height: int 
     raise RuntimeError(f"console di {node_label} non disponibile: {buf[-200:].decode(errors='ignore')}")
 
 
+# messaggi di syslog di IOS sulla console, es. "*Nov 14 15:01:02.123: %LINK-3-UPDOWN: ..."
+SYSLOG_LINE = re.compile(r"^\s*(\*?[A-Z][a-z]{2}\s+\d+\s+[\d:.]+:\s*)?%[A-Z0-9_]+-\d-[A-Z0-9_]+:")
+
 # sequenze di controllo del terminale (es. ESC[6n che la shell di Alpine manda dopo il prompt)
 ANSI_ESC = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][A-Z0-9]")
 
@@ -229,17 +232,23 @@ def _run_console_commands(lab_title: str, node_label: str, cml_def: str, command
             chan.send("terminal length 0\r")
             _read_until(chan, lambda s: bool(IOS_PROMPT.search(s.rstrip().splitlines()[-1] if s.strip() else "")), 3)
         prompt = LINUX_PROMPT if linux else IOS_PROMPT
-
-        def done(s: str) -> bool:
-            lines = s.rstrip("\r\n ").splitlines()
-            return len(lines) > 1 and bool(prompt.search(lines[-1]))
         results = []
         for command in commands:
+            # quello che e' rimasto sulla linea (syslog, prompt ristampati da `logging synchronous`)
+            # non deve essere scambiato per la fine del comando: si scarta prima di inviare
+            _read_until(chan, lambda s: False, 0.3)
+            head = command.strip()[:20]  # IOS accorcia l'eco dei comandi lunghi con '$'
+
+            def done(s: str, head: str = head) -> bool:
+                i = s.find(head)
+                if i < 0:
+                    return False
+                lines = s[i:].rstrip("\r\n ").splitlines()
+                return len(lines) > 1 and bool(prompt.search(lines[-1]))
             chan.send(command + "\r")
-            out = _read_until(chan, done, timeout)
-            lines = out.replace("\r", "").splitlines()
-            if lines and command.strip() in lines[0]:
-                lines = lines[1:]
+            out = _read_until(chan, done, timeout).replace("\r", "")
+            i = out.find(head)
+            lines = out[i:].splitlines()[1:] if i >= 0 else out.splitlines()
             results.append("\n".join(lines).rstrip())
         return results
     finally:
@@ -809,6 +818,7 @@ class RoomManager:
     # ---- LED delle porte, letti dagli apparati -----------------------------
     _ports_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
     _counters: Dict[Tuple[str, str], Tuple[float, int, int]] = {}  # (nodo, porta) -> (t, pacchetti, errori)
+    _last_good: Dict[str, Dict[str, Dict[str, Any]]] = {}             # stanza -> nodo -> ultima lettura valida
 
     async def ports(self, room_id: str, fresh: bool = False) -> Dict[str, Any]:
         """Stato reale delle porte: switch `show interfaces status` + porte bloccate da STP,
@@ -845,9 +855,17 @@ class RoomManager:
         free = [n for n in nodes if n not in busy and n not in frozen]
         pairs = dict(await asyncio.gather(*[asyncio.to_thread(read, n) for n in free],
                                           *[read_frozen(n) for n in frozen]))
-        previous = (hit[1]["ports"] if hit else {})
+        previous = (hit[1]["ports"] if hit else self._last_good.get(room_id, {}))
         for n in busy:  # console in uso da un giocatore: nessun comando automatico, ultimo valore noto
             pairs[n["label"]] = {**previous.get(n["label"], {}), "_console_in_use": True}
+        for label, res in list(pairs.items()):
+            if label in [b["label"] for b in busy]:
+                continue
+            if "_error" in res or not any(k.startswith("Ethernet") for k in res):
+                # lettura fallita o incompleta: meglio l'ultimo valore valido che porte vuote (LED spenti)
+                pairs[label] = {**previous.get(label, {}), "_stale": True, "_error": res.get("_error", "lettura vuota")}
+            else:
+                self._last_good.setdefault(room_id, {})[label] = res
         out = {"room_id": room_id, "ready": True, "ports": pairs, "read_at": time.time()}
         self._ports_cache[room_id] = (time.time(), out)
         return out
@@ -868,6 +886,8 @@ class RoomManager:
                 if "Building configuration" not in run or not re.search(r"^end\s*$", run, re.M):
                     return {"node": n["label"], "kind": n.get("kind"), "missing": [], "extra": [], "ok": False,
                             "error": "lettura della running-config incompleta: riprova la verifica"}
+                # syslog arrivati durante la lettura (es. %LINK-3-UPDOWN) non fanno parte della configurazione
+                run = "\n".join(ln for ln in run.splitlines() if not SYSLOG_LINE.match(ln))
                 d = diff_config(n.get("config", ""), run)
                 return {"node": n["label"], "kind": n.get("kind"), **d,
                         "ok": not d["missing"] and not d["extra"], "error": None}
