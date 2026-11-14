@@ -48,6 +48,11 @@ IOS_PROMPT = re.compile(r"[\w\-.]+(\([\w\-.]+\))?[>#]\s*$")
 LINUX_PROMPT = re.compile(r"[\w\-.@:~/ ]*[$#]\s*$")
 
 
+class IOSAuthError(Exception):
+    """Sollevata quando l'autenticazione console o enable fallisce per credenziali errate o mancanti."""
+    pass
+
+
 # ---------------------------------------------------------------------------
 # Specifiche delle stanze
 # ---------------------------------------------------------------------------
@@ -66,6 +71,19 @@ def load_rooms() -> Dict[str, Dict[str, Any]]:
 
 
 ROOMS = load_rooms()
+
+
+def _credentials_for(lab_title: str, node_label: str) -> Dict[str, str]:
+    """Cerca le credenziali per il lab o per il singolo nodo nelle specifiche delle stanze."""
+    for spec in ROOMS.values():
+        if spec.get("lab_title") == lab_title:
+            for n in spec.get("nodes", []):
+                if n.get("label") == node_label and n.get("credentials"):
+                    creds = dict(spec.get("credentials") or {})
+                    creds.update(n["credentials"])
+                    return creds
+            return dict(spec.get("credentials") or {})
+    return {}
 
 
 def room_spec(room_id: str) -> Dict[str, Any]:
@@ -197,38 +215,134 @@ def _linux_login(chan: paramiko.Channel, out: str) -> str:
     return out
 
 
-def run_console_command(lab_title: str, node_label: str, cml_def: str, command: str, timeout: float = 10) -> str:
+IOS_USER_PROMPT = re.compile(r"(?:Username|login):\s*$", re.IGNORECASE)
+IOS_PASS_PROMPT = re.compile(r"Password:\s*$", re.IGNORECASE)
+IOS_EXEC_PROMPT = re.compile(r"[\w\-.]+(\([\w\-.]+\))?>\s*$")
+IOS_PRIV_PROMPT = re.compile(r"[\w\-.]+(\([\w\-.]+\))?#\s*$")
+IOS_AUTH_ERROR = re.compile(r"(% Bad passwords|% Access denied|% Authentication failed|% Login invalid)", re.IGNORECASE)
+
+
+def _ios_auth(chan: paramiko.Channel, creds: Optional[Dict[str, str]] = None, timeout: float = 10.0) -> str:
+    creds = creds or {}
+    t0 = time.time()
+    buf = ""
+    sent_user = False
+    sent_pass = False
+    sent_enable = False
+    sent_enable_pass = False
+    last_wake = 0.0
+
+    while time.time() - t0 < timeout:
+        now = time.time()
+        if not buf and (now - last_wake > 1.2):
+            chan.send("\r")
+            last_wake = now
+
+        try:
+            data = chan.recv(65535)
+        except Exception:
+            data = b""
+
+        if data:
+            buf += data.decode(errors="ignore")
+
+        clean = ANSI_ESC.sub("", buf)
+        last_line = clean.rstrip("\r\n").splitlines()[-1] if clean.strip() else clean.strip()
+
+        if IOS_AUTH_ERROR.search(clean):
+            raise IOSAuthError("accesso negato con le password della scheda")
+
+        if IOS_PRIV_PROMPT.search(last_line):
+            if "(config" in last_line:
+                chan.send("end\r")
+                buf = ""
+                time.sleep(0.15)
+                continue
+            return clean
+
+        if IOS_USER_PROMPT.search(last_line):
+            if sent_user:
+                raise IOSAuthError("accesso negato con le password della scheda")
+            user = creds.get("username")
+            if not user:
+                raise IOSAuthError("accesso negato con le password della scheda")
+            chan.send(user + "\r")
+            sent_user = True
+            buf = ""
+            time.sleep(0.15)
+            continue
+
+        if IOS_PASS_PROMPT.search(last_line):
+            if not sent_enable:
+                if sent_pass:
+                    raise IOSAuthError("accesso negato con le password della scheda")
+                pwd = creds.get("console") or creds.get("password")
+                if not pwd:
+                    raise IOSAuthError("accesso negato con le password della scheda")
+                chan.send(pwd + "\r")
+                sent_pass = True
+                buf = ""
+                time.sleep(0.15)
+                continue
+            else:
+                if sent_enable_pass:
+                    raise IOSAuthError("accesso negato con le password della scheda")
+                pwd = creds.get("enable")
+                if not pwd:
+                    raise IOSAuthError("accesso negato con le password della scheda")
+                chan.send(pwd + "\r")
+                sent_enable_pass = True
+                buf = ""
+                time.sleep(0.15)
+                continue
+
+        if IOS_EXEC_PROMPT.search(last_line):
+            chan.send("enable\r")
+            sent_enable = True
+            buf = ""
+            time.sleep(0.15)
+            continue
+
+        time.sleep(0.05)
+
+    clean = ANSI_ESC.sub("", buf)
+    last_line = clean.rstrip("\r\n").splitlines()[-1] if clean.strip() else clean.strip()
+    if IOS_PASS_PROMPT.search(last_line) or IOS_USER_PROMPT.search(last_line) or IOS_AUTH_ERROR.search(clean):
+        raise IOSAuthError("accesso negato con le password della scheda")
+    raise TimeoutError(f"Handshake console IOS oltre il tempo massimo: {clean[-200:]}")
+
+
+def run_console_command(lab_title: str, node_label: str, cml_def: str, command: str, timeout: float = 10,
+                        credentials: Optional[Dict[str, str]] = None) -> str:
     """Esegue un comando sulla console vera e restituisce l'output completo (fino al prompt)."""
-    return run_console_commands(lab_title, node_label, cml_def, [command], timeout)[0]
+    return run_console_commands(lab_title, node_label, cml_def, [command], timeout, credentials)[0]
 
 
 def run_console_commands(lab_title: str, node_label: str, cml_def: str, commands: List[str],
-                         timeout: float = 10) -> List[str]:
+                         timeout: float = 10, credentials: Optional[Dict[str, str]] = None) -> List[str]:
     """Piu' comandi nella stessa sessione console (una sola connessione)."""
     with node_lock(lab_title, node_label):
-        return _run_console_commands(lab_title, node_label, cml_def, commands, timeout)
+        return _run_console_commands(lab_title, node_label, cml_def, commands, timeout, credentials)
 
 
 def _run_console_commands(lab_title: str, node_label: str, cml_def: str, commands: List[str],
-                          timeout: float) -> List[str]:
+                          timeout: float, credentials: Optional[Dict[str, str]] = None) -> List[str]:
     ssh, chan, _ = open_console(lab_title, node_label)
     try:
         linux = cml_def in LINUX_DEFS
-        woke = lambda s: bool(s.strip()) and (  # noqa: E731
-            "login:" in s[-60:] or bool((LINUX_PROMPT if linux else IOS_PROMPT).search(s.rstrip("\r\n").splitlines()[-1])))
-        # Ctrl+C (interrompe comandi rimasti appesi), Ctrl+U (cancella una riga lasciata a meta'),
-        # poi Invio finche' non compare il prompt: la console puo' essere ferma dopo l'avvio
-        out = ""
-        for wake in ("\x03\x15\r", "\r", "\r"):
-            chan.send(wake)
-            out += _read_until(chan, woke, 4)
-            if woke(out):
-                break
         if linux:
+            woke = lambda s: bool(s.strip()) and (  # noqa: E731
+                "login:" in s[-60:] or bool(LINUX_PROMPT.search(s.rstrip("\r\n").splitlines()[-1])))
+            out = ""
+            for wake in ("\x03\x15\r", "\r", "\r"):
+                chan.send(wake)
+                out += _read_until(chan, woke, 4)
+                if woke(out):
+                    break
             _linux_login(chan, out)
         else:
-            chan.send("\x1a\renable\r")  # comandi privilegiati (show run, ecc.); nessuna enable secret nei lab
-            _read_until(chan, lambda s: s.rstrip().endswith("#"), 3)
+            creds = credentials if credentials is not None else _credentials_for(lab_title, node_label)
+            _ios_auth(chan, creds, timeout=timeout)
             chan.send("terminal length 0\r")
             _read_until(chan, lambda s: bool(IOS_PROMPT.search(s.rstrip().splitlines()[-1] if s.strip() else "")), 3)
         prompt = LINUX_PROMPT if linux else IOS_PROMPT
@@ -264,12 +378,10 @@ def save_ios_config(lab_title: str, node_label: str) -> bool:
 def _save_ios_config(lab_title: str, node_label: str) -> bool:
     ssh, chan, _ = open_console(lab_title, node_label)
     try:
-        chan.send("\r\x1a\r")  # Ctrl+Z: esce da eventuale modalita' configurazione
-        _read_until(chan, lambda s: s.rstrip().endswith(("#", ">")), 3)
-        chan.send("enable\r")
-        _read_until(chan, lambda s: s.rstrip().endswith(("#", "Password:")), 3)
+        creds = _credentials_for(lab_title, node_label)
+        _ios_auth(chan, creds, timeout=10)
         chan.send("write memory\r")
-        out = _read_until(chan, lambda s: "[OK]" in s or "Invalid" in s, 15)
+        out = _read_until(chan, lambda s: "[OK]" in s or "Invalid" in s or "Error" in s, 15)
         return "[OK]" in out
     finally:
         ssh.close()
@@ -284,8 +396,8 @@ def console_configure(lab_title: str, node_label: str, lines: List[str]) -> str:
 def _console_configure(lab_title: str, node_label: str, lines: List[str]) -> str:
     ssh, chan, _ = open_console(lab_title, node_label)
     try:
-        chan.send("\r\x1a\renable\r")
-        _read_until(chan, lambda s: s.rstrip().endswith("#"), 4)
+        creds = _credentials_for(lab_title, node_label)
+        _ios_auth(chan, creds, timeout=10)
         chan.send("configure terminal\r")
         _read_until(chan, lambda s: s.rstrip().endswith("(config)#"), 4)
         for ln in lines:
@@ -306,8 +418,8 @@ def bounce_port(lab_title: str, node_label: str, iface: str) -> str:
     with node_lock(lab_title, node_label):
         ssh, chan, _ = open_console(lab_title, node_label)
         try:
-            chan.send("\x03\x15\r\x1a\renable\r")
-            _read_until(chan, lambda s: s.rstrip().endswith("#"), 4)
+            creds = _credentials_for(lab_title, node_label)
+            _ios_auth(chan, creds, timeout=10)
             _read_until(chan, lambda s: False, 0.3)
             chan.send(f"show running-config interface {iface}\r")
             cfg = _read_until(chan, lambda s: bool(re.search(r"^end\s*$", s, re.M)), 6)
@@ -626,14 +738,20 @@ class RoomManager:
                         info = await self.api.get(f"/labs/{olid}")
                         running.append((olid, info["lab_title"], nodes))
 
-                # 2) salva le configurazioni IOS (solo lab delle stanze, nodi avviati)
+                # 2) salva le configurazioni IOS (solo lab delle stanze, nodi avviati) se autosave e' abilitato
                 if running:
-                    self._set(room_id, "saving", "Salvo le configurazioni della stanza precedente")
                     room_titles = {s["lab_title"] for s in ROOMS.values()}
-                    jobs = [asyncio.to_thread(save_ios_config, title, n["label"])
-                            for _, title, nodes in running if title in room_titles
-                            for n in nodes if n["state"] == "BOOTED" and n["node_definition"] in IOS_DEFS]
+                    jobs = []
+                    for _, title, nodes in running:
+                        if title in room_titles:
+                            prev_spec = next((s for s in ROOMS.values() if s.get("lab_title") == title), None)
+                            if prev_spec and not prev_spec.get("autosave", True):
+                                continue
+                            for n in nodes:
+                                if n["state"] == "BOOTED" and n["node_definition"] in IOS_DEFS:
+                                    jobs.append(asyncio.to_thread(save_ios_config, title, n["label"]))
                     if jobs:
+                        self._set(room_id, "saving", "Salvo le configurazioni della stanza precedente")
                         await asyncio.gather(*jobs, return_exceptions=True)
 
                     # 3) spegni (stop, NON wipe) e aspetta che i nodi siano spenti davvero
@@ -874,6 +992,11 @@ class RoomManager:
     async def ports(self, room_id: str, fresh: bool = False) -> Dict[str, Any]:
         """Stato reale delle porte: switch `show interfaces status` + porte bloccate da STP,
         router `show ip interface brief`. LED: green / amber / off. Cache di 4 s."""
+        try:
+            from backend.console_session import console_session_manager
+            console_session_manager.cleanup_expired()
+        except Exception:
+            pass
         hit = self._ports_cache.get(room_id)
         if hit and time.time() - hit[0] < (1.5 if fresh else 7):
             return hit[1]
@@ -884,6 +1007,8 @@ class RoomManager:
         def read(n: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
             try:
                 return n["label"], read_port_leds(spec["lab_title"], n, self._counters)
+            except IOSAuthError as exc:
+                return n["label"], {"_error": str(exc), "ok": False}
             except Exception as exc:  # porta senza dati: il gioco usa lo stato del cavo
                 return n["label"], {"_error": str(exc)}
 
@@ -939,16 +1064,55 @@ class RoomManager:
                             "error": "lettura della running-config incompleta: riprova la verifica"}
                 # syslog arrivati durante la lettura (es. %LINK-3-UPDOWN) non fanno parte della configurazione
                 run = "\n".join(ln for ln in run.splitlines() if not SYSLOG_LINE.match(ln))
+                from backend.config_diff import diff_config, verify_acl_order
                 d = diff_config(n.get("config", ""), run)
+
+                # Gaia Verification: Controllo ordinamento ACL top-down
+                acl_ok = verify_acl_order(n.get("config", ""), run)
+
+                # Gaia Verification: SSH abilitato e Telnet disabilitato se richiesto o presente
+                has_telnet = bool(re.search(r"transport input\s+(?:all|telnet\b)", run, re.IGNORECASE))
+                has_ssh = bool(re.search(r"transport input\s+(?:ssh\b)", run, re.IGNORECASE))
+                ssh_telnet_ok = True
+                if n.get("check_ssh") or spec.get("check_ssh"):
+                    ssh_telnet_ok = has_ssh and not has_telnet
+
+                # Gaia Verification: Startup-config vs running persistence
+                persistence_ok = True
+                if n.get("check_persistence") or spec.get("check_persistence"):
+                    try:
+                        (startup,) = run_console_commands(title, n["label"], n["cml_def"], ["show startup-config"], timeout=15)
+                        if "Non-volatile memory is not present" in startup or "NVRAM config" not in startup:
+                            persistence_ok = False
+                        else:
+                            s_diff = diff_config(run, startup)
+                            persistence_ok = not s_diff["missing"] and not s_diff["extra"]
+                    except Exception:
+                        persistence_ok = False
+
+                is_ok = not d["missing"] and not d["extra"] and acl_ok and ssh_telnet_ok and persistence_ok
                 return {"node": n["label"], "kind": n.get("kind"), **d,
-                        "ok": not d["missing"] and not d["extra"], "error": None}
+                        "acl_ok": acl_ok, "ssh_telnet_ok": ssh_telnet_ok, "persistence_ok": persistence_ok,
+                        "ok": is_ok, "error": None}
+            except IOSAuthError as exc:
+                return {"node": n["label"], "kind": n.get("kind"), "missing": [], "extra": [], "ok": False,
+                        "error": str(exc)}
             except Exception as exc:
                 return {"node": n["label"], "kind": n.get("kind"), "missing": [], "extra": [], "ok": False,
                         "error": f"console non disponibile: {exc}"}
 
         def host_checks(host: str, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             ns = node_spec(room_id, host) or {}
-            cmds = ["ip -4 addr show eth0" if "dhcp" in c else f"ping -c 3 -W 1 {c['ping']}" for c in items]
+            cmds = []
+            for c in items:
+                if "dhcp" in c:
+                    cmds.append("ip -4 addr show eth0")
+                elif "traceroute" in c:
+                    target = c["traceroute"]
+                    hops = c.get("hops", 10)
+                    cmds.append(f"traceroute -n -m {hops} -w 1 {target}")
+                else:
+                    cmds.append(f"ping -c 3 -W 1 {c['ping']}")
             try:
                 outs = run_console_commands(title, host, ns.get("cml_def", "alpine"), cmds, timeout=12)
             except Exception as exc:
@@ -960,6 +1124,14 @@ class RoomManager:
                     ip = m.group(1) if m else None
                     ok = bool(ip and ip.startswith(c["dhcp"]))
                     res.append({**c, "ok": ok, "detail": f"indirizzo {ip}" if ip else "nessun indirizzo IPv4"})
+                elif "traceroute" in c:
+                    target = c["traceroute"]
+                    hop_matches = re.findall(r"^\s*(\d+)\s+([0-9.]+)", out, re.M)
+                    reached = any(h[1] == target for h in hop_matches)
+                    hops_count = len(hop_matches)
+                    max_allowed = c.get("max_hops")
+                    ok = reached and (max_allowed is None or hops_count <= max_allowed)
+                    res.append({**c, "ok": ok, "detail": f"raggiunto {target} in {hops_count} hop" if ok else f"traceroute verso {target} fallito"})
                 else:
                     p = parse_ping(out)
                     res.append({**c, "ok": p["success"], "detail": f"{p['received']}/{p['sent']} risposte, perdita {p['loss']:.0f}%"})
@@ -977,11 +1149,106 @@ class RoomManager:
             await asyncio.sleep(0.5)  # le ultime righe dell'output arrivano ancora durante il blocco
         devices = results[:len(ios)]
         checks = [c for group in results[len(ios):] for c in group]
+
+        # Gaia Verification: Port STAT LEDs se richiesto
+        if spec.get("check_leds", False):
+            try:
+                ports_res = await self.ports(room_id)
+                for pair in ports_res.get("ports", []):
+                    color = pair.get("color", "off")
+                    p_ok = color in ("green", "amber")
+                    checks.append({
+                        "label": f"Port LED {pair.get('node')}:{pair.get('iface')}",
+                        "ok": p_ok,
+                        "detail": f"LED status: {color}",
+                    })
+            except Exception as exc:
+                checks.append({
+                    "label": "Port LEDs verification",
+                    "ok": False,
+                    "detail": f"Lettura LED fallita: {exc}",
+                })
+
         checks.sort(key=lambda c: next((i for i, sc in enumerate(spec.get("checks", []))
                                         if sc.get("label") == c.get("label")), 99))
+        auth_error = next((d["error"] for d in devices if d.get("error") == "accesso negato con le password della scheda"), None)
+        ok = all(d["ok"] for d in devices) and all(c["ok"] for c in checks)
+        summary = auth_error or ("Verifica completata con successo" if ok else "Verifica fallita")
         return {"room_id": room_id, "lab_title": title,
-                "ok": all(d["ok"] for d in devices) and all(c["ok"] for c in checks),
+                "ok": ok, "summary": summary,
                 "devices": devices, "checks": checks, "took_s": round(time.time() - t0, 1)}
+
+    # ---- ricarica apparati / stanza (A3) -------------------------------
+    async def reload(self, room_id: str, node: Optional[str] = None) -> Dict[str, Any]:
+        """Ricarica (stop -> start SENZA wipe) un singolo nodo o l'intera stanza.
+        Preserva la startup-config salvata in NVRAM."""
+        if room_id not in ROOMS:
+            raise KeyError(f"stanza sconosciuta: {room_id}")
+        spec = room_spec(room_id)
+        lid = await self.find_lab(spec["lab_title"])
+        if not lid:
+            raise RuntimeError(f"lab {spec['lab_title']} non trovato in CML")
+
+        self._set(room_id, "reloading", f"Ricarica in corso di {node or 'tutti i nodi'}")
+        self._ports_cache.pop(room_id, None)
+
+        if node:
+            ns = node_spec(room_id, node)
+            if not ns:
+                raise ValueError(f"nodo {node} non trovato nella stanza {room_id}")
+            nodes = await self._nodes(lid)
+            cml_node = next((n for n in nodes if n["label"] == node), None)
+            if not cml_node:
+                raise RuntimeError(f"nodo {node} non trovato nel lab CML {lid}")
+            nid = cml_node["id"]
+
+            r = await self.api.put(f"/labs/{lid}/nodes/{nid}/state/stop")
+            if r.status_code >= 400:
+                raise RuntimeError(f"errore stop nodo {node}: {r.text}")
+
+            async def wait_node_state(pred: Callable[[str], bool], timeout: float) -> bool:
+                t0 = time.time()
+                while time.time() - t0 < timeout:
+                    curr = await self._nodes(lid)
+                    curr_n = next((x for x in curr if x["id"] == nid), None)
+                    if curr_n and pred(curr_n["state"]):
+                        return True
+                    await asyncio.sleep(1)
+                return False
+
+            if not await wait_node_state(lambda st: st in OFF_STATES, STOP_TIMEOUT_S):
+                raise RuntimeError(f"il nodo {node} non si e' spento")
+
+            r = await self.api.put(f"/labs/{lid}/nodes/{nid}/state/start")
+            if r.status_code >= 400:
+                raise RuntimeError(f"errore start nodo {node}: {r.text}")
+
+            if not await wait_node_state(lambda st: st == "BOOTED", BOOT_TIMEOUT_S):
+                raise RuntimeError(f"il nodo {node} non si e' avviato")
+
+            n_tot = len(spec["nodes"])
+            self.active_room = room_id
+            self._wanted = room_id
+            self._set(room_id, "ready", "Rete della stanza accesa", ready_nodes=n_tot, total_nodes=n_tot)
+            return {"status": "reloading", "room_id": room_id, "node": node}
+        else:
+            r = await self.api.put(f"/labs/{lid}/stop")
+            if r.status_code >= 400:
+                raise RuntimeError(f"errore stop lab: {r.text}")
+            if not await self._wait_nodes(lid, lambda n: n["state"] in OFF_STATES, STOP_TIMEOUT_S):
+                raise RuntimeError(f"il lab {spec['lab_title']} non si spegne")
+
+            r = await self.api.put(f"/labs/{lid}/start")
+            if r.status_code >= 400:
+                raise RuntimeError(f"errore start lab: {r.text}")
+            if not await self._wait_nodes(lid, lambda n: n["state"] == "BOOTED", BOOT_TIMEOUT_S):
+                raise RuntimeError(f"il lab {spec['lab_title']} non si avvia")
+
+            n_tot = len(spec["nodes"])
+            self.active_room = room_id
+            self._wanted = room_id
+            self._set(room_id, "ready", "Rete della stanza accesa", ready_nodes=n_tot, total_nodes=n_tot)
+            return {"status": "reloading", "room_id": room_id, "node": "all"}
 
     # ---- comandi singoli (vecchio terminale) ----------------------------
     async def exec_command(self, node_label: str, command: str, room_id: Optional[str] = None) -> str:
@@ -991,8 +1258,24 @@ class RoomManager:
         ns = node_spec(room_id, node_label)
         if not ns:
             raise ValueError(f"{node_label} non e' nella stanza {room_id}")
-        return await asyncio.to_thread(run_console_command, room_spec(room_id)["lab_title"],
-                                       node_label, ns["cml_def"], command)
+
+        cml_def = ns["cml_def"]
+        cmd_to_run = command
+        formatter = None
+        if cml_def in ("alpine", "ubuntu", "server") or ns.get("kind") in ("pc", "server", "printer"):
+            from backend.windows_translator import translate_windows_command
+            res = translate_windows_command(command)
+            if res:
+                cmd_to_run, formatter = res
+
+        out = await asyncio.to_thread(run_console_command, room_spec(room_id)["lab_title"],
+                                       node_label, cml_def, cmd_to_run)
+        if formatter:
+            try:
+                out = formatter(out)
+            except Exception:
+                pass
+        return out
 
     def _room_of(self, node_label: str) -> Optional[str]:
         return next((r for r in ROOMS if node_spec(r, node_label)), None)
@@ -1196,6 +1479,9 @@ class ConsoleBridge:
         if self.locked():
             self.queued += data  # tasti durante un blocco: inviati appena finisce
             return
+        if not self.locked() and self.queued:
+            data = self.queued + data
+            self.queued = ""
         if "\r" in data and self.cml_def in IOS_DEFS:
             line = (self.pending + data.split("\r")[0]).strip()
             in_config = bool(self.last_prompt and self.last_prompt.group(2))

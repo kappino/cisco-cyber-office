@@ -150,3 +150,175 @@ def parse_ping(output: str) -> Dict[str, object]:
         return {"success": recv > 0 and loss < 100.0, "sent": int(s.group(1)), "received": recv, "loss": loss}
     replies = re.findall(r"\b\d+\s+bytes\s+from\s+", output, re.IGNORECASE)
     return {"success": bool(replies), "sent": len(replies), "received": len(replies), "loss": 0.0 if replies else 100.0}
+
+
+# ---------------------------------------------------------------------------
+# ACL Order Verification (A4 Gaia Suite)
+# ---------------------------------------------------------------------------
+def verify_acl_order(target_config: str, running_config: str) -> bool:
+    """
+    Verifies that access-list rules in running_config preserve the exact top-down
+    sequence defined in target_config (Cisco ACL first-match semantics).
+    Strips optional Cisco line sequence numbers (e.g. '10 permit ...').
+    """
+    t_sec, _ = parse_sections(target_config)
+    r_sec, _ = parse_sections(running_config)
+
+    def clean_rule(line: str) -> Optional[str]:
+        n = _norm(line)
+        n_stripped = re.sub(r"^\d+\s+", "", n)
+        if n_stripped.startswith(("permit", "deny", "remark")):
+            return n_stripped
+        return None
+
+    for sec, t_lines in t_sec.items():
+        if "access-list" in sec.lower():
+            r_lines = r_sec.get(sec, [])
+            t_rules = [clean_rule(l) for l in t_lines if clean_rule(l)]
+            r_rules = [clean_rule(l) for l in r_lines if clean_rule(l)]
+
+            if not t_rules:
+                continue
+
+            curr_idx = -1
+            for rule in t_rules:
+                try:
+                    next_idx = r_rules.index(rule, curr_idx + 1)
+                    curr_idx = next_idx
+                except ValueError:
+                    return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# 3-Level Diff Hints (B1 & C6)
+# ---------------------------------------------------------------------------
+def generate_hints(diff_result: Dict[str, Any], level: int = 1, device_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    Generates progressive 3-level troubleshooting hints from diff output:
+    - Level 1: Device / High-level
+    - Level 2: Section / Scope
+    - Level 3: Exact command
+    """
+    if level not in (1, 2, 3):
+        level = 1
+
+    device_diffs: List[Tuple[str, Dict[str, List[Dict[str, str]]]]] = []
+
+    if "devices" in diff_result and isinstance(diff_result["devices"], list):
+        for d in diff_result["devices"]:
+            lbl = d.get("label") or d.get("device") or "unknown"
+            diff = d.get("diff", {})
+            if isinstance(diff, dict):
+                device_diffs.append((lbl, diff))
+    elif "missing" in diff_result or "extra" in diff_result:
+        lbl = diff_result.get("device", "device")
+        device_diffs.append((lbl, diff_result))
+    else:
+        for k, v in diff_result.items():
+            if isinstance(v, dict) and ("missing" in v or "extra" in v):
+                device_diffs.append((k, v))
+
+    hints: List[Dict[str, Any]] = []
+
+    for dev_label, diff in device_diffs:
+        if device_filter and dev_label.lower() != device_filter.lower():
+            continue
+
+        missing = diff.get("missing", [])
+        extra = diff.get("extra", [])
+
+        if not missing and not extra:
+            continue
+
+        if level == 1:
+            # Level 1: Device / High-level
+            categories = set()
+            for item in missing + extra:
+                sec = item.get("section", "")
+                if sec.startswith("interface"):
+                    categories.add("interfacce di rete")
+                elif sec.startswith("vlan"):
+                    categories.add("VLAN")
+                elif sec.startswith("ip dhcp"):
+                    categories.add("servizi DHCP")
+                elif sec.startswith("ip route"):
+                    categories.add("routing")
+                elif sec.startswith("ip access-list"):
+                    categories.add("liste di controllo accessi (ACL)")
+                else:
+                    categories.add("configurazioni generali")
+            cat_str = ", ".join(sorted(categories)) if categories else "parametri di rete"
+            hints.append({
+                "level": 1,
+                "device": dev_label,
+                "hint": f"Rilevata discrepanza di configurazione su {dev_label}. Controlla l'area: {cat_str}.",
+            })
+
+        elif level == 2:
+            # Level 2: Section / Scope
+            sections: Dict[str, List[str]] = {}
+            for item in missing:
+                sec = item.get("section") or "global"
+                sections.setdefault(sec, []).append(f"mancante: {item.get('line')}")
+            for item in extra:
+                sec = item.get("section") or "global"
+                sections.setdefault(sec, []).append(f"non previsto: {item.get('line')}")
+
+            for sec, details in sections.items():
+                if sec == "global":
+                    hints.append({
+                        "level": 2,
+                        "device": dev_label,
+                        "section": "global",
+                        "hint": f"Su {dev_label}, controlla la configurazione globale ({len(details)} discrepanze).",
+                    })
+                else:
+                    hints.append({
+                        "level": 2,
+                        "device": dev_label,
+                        "section": sec,
+                        "hint": f"Su {dev_label}, verifica la sezione '{sec}': rilevate impostazioni non allineate ({len(details)} discrepanze).",
+                    })
+
+        elif level == 3:
+            # Level 3: Exact command
+            for item in missing:
+                sec = item.get("section", "")
+                line = item.get("line", "")
+                if sec:
+                    cmd = f"configure terminal\n{sec}\n{line}\nend"
+                    hint_text = f"Su {dev_label}, entra in '{sec}' ed esegui '{line}'"
+                else:
+                    cmd = f"configure terminal\n{line}\nend"
+                    hint_text = f"Su {dev_label}, esegui il comando globale '{line}'"
+                hints.append({
+                    "level": 3,
+                    "device": dev_label,
+                    "section": sec or "global",
+                    "command": cmd,
+                    "hint": hint_text,
+                })
+
+            for item in extra:
+                sec = item.get("section", "")
+                line = item.get("line", "")
+                if line == "shutdown" and sec:
+                    cmd = f"configure terminal\n{sec}\nno shutdown\nend"
+                    hint_text = f"Su {dev_label}, riattiva la porta '{sec}' eseguendo 'no shutdown'"
+                elif sec:
+                    cmd = f"configure terminal\n{sec}\nno {line}\nend"
+                    hint_text = f"Su {dev_label}, rimuovi da '{sec}' la riga inattesa eseguendo 'no {line}'"
+                else:
+                    cmd = f"configure terminal\nno {line}\nend"
+                    hint_text = f"Su {dev_label}, rimuovi la configurazione inattesa con 'no {line}'"
+                hints.append({
+                    "level": 3,
+                    "device": dev_label,
+                    "section": sec or "global",
+                    "command": cmd,
+                    "hint": hint_text,
+                })
+
+    return hints
+

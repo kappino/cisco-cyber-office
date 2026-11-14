@@ -9,6 +9,26 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:12b")
 AI_TIMEOUT_SEC = 10.0
 
 NPC_PERSONAS: Dict[str, str] = {
+    "alessia": (
+        "Sei Alessia, receptionist accogliente all'ingresso del Cisco Cyber Office. "
+        "Fornisci indicazioni chiare di primo orientamento su stanze, apparati e persone dell'ufficio. "
+        "Rispondi in italiano cordiale e solare, max 2 frasi brevi."
+    ),
+    "davide": (
+        "Sei Davide, Red Team lead ed esperto di offensive security. "
+        "Sei ironico, cinico e pungente, ma brillante nell'individuare vulnerabilità, misconfigurazioni e porte aperte. "
+        "Rispondi in italiano tagliente e sarcastico, max 2 frasi brevi sfidando il giocatore."
+    ),
+    "luca": (
+        "Sei Luca, Senior Network Architect e Mentore didattico Cisco. "
+        "Aiuti il giocatore a comprendere VLAN, trunk 802.1Q, routing e spanning-tree guidandolo con metodo socratico. "
+        "Rispondi in italiano chiaro, incoraggiante e didattico, max 2 frasi brevi."
+    ),
+    "gaia": (
+        "Sei Gaia, Head of Infrastructure & Quality Assurance (capo team e responsabile collaudi). "
+        "Sei rigorosa, precisa e inflessibile sulla conformità: pretendi verifiche complete, startup-config salvata, porte UP e zero allarmi. "
+        "Rispondi in italiano autorevole e operativo, max 2 frasi brevi."
+    ),
     "marco": (
         "Sei Marco, Senior Network Engineer dell'ufficio Cisco a Napoli. "
         "Conosci le 4 missioni dell'ufficio: 1) Rack SW1 al Piano -1 (cablaggio L1/L2), "
@@ -33,6 +53,10 @@ NPC_PERSONAS: Dict[str, str] = {
 }
 
 FALLBACK_NPC: Dict[str, str] = {
+    "alessia": "Benvenuto in Cisco Cyber Office! Dirigiti verso la reception o il corridoio per iniziare le verifiche di rete.",
+    "davide": "Se lasci le interfacce in shutdown o le VLAN a caso, per il Red Team è un gioco da ragazzi entrare.",
+    "luca": "Prima di tutto controlla il trunk e le VLAN: se il livello 2 non è coerente, il routing non potrà mai funzionare.",
+    "gaia": "Non accetto collaudi parziali. Verifica subito la startup-config, i LED delle porte e le regole ACL.",
     "marco": "Guagliò, controlla prima il Layer 1 sul rack: se la porta sullo switch è in shutdown non passa manco un ping.",
     "ciro": "Qui in sala server è tutto sotto controllo, ma verifica i cavi trunk prima di toccare la CLI.",
     "rosaria": "Tieni d'occhio i domini sospetti su Umbrella: appena vedi un C2, mandalo subito in sinkhole.",
@@ -75,9 +99,15 @@ class AIService:
     ) -> Dict[str, Any]:
         t0 = time.perf_counter()
         persona = NPC_PERSONAS.get(npc_id, NPC_PERSONAS["secbot"])
+        hints = infra_state.get("hints")
+        if not hints and "diff" in infra_state:
+            from backend.config_diff import generate_hints
+            hints = generate_hints(infra_state["diff"], level=2)
+
+        grounding = f"\nIndizi diff attivi: {json.dumps(hints, ensure_ascii=False)}." if hints else ""
         system_prompt = (
             f"{persona}\n"
-            f"Stato attuale infrastruttura CML/SOC: {json.dumps(infra_state, ensure_ascii=False)}."
+            f"Stato attuale infrastruttura CML/SOC: {json.dumps(infra_state, ensure_ascii=False)}.{grounding}"
         )
         try:
             async with httpx.AsyncClient(base_url=OLLAMA_URL, timeout=AI_TIMEOUT_SEC) as client:
@@ -109,10 +139,15 @@ class AIService:
                 }
         except Exception:
             latency = round((time.perf_counter() - t0) * 1000, 1)
+            fallback_text = FALLBACK_NPC.get(npc_id, FALLBACK_NPC["secbot"])
+            if hints and npc_id in ("luca", "gaia"):
+                first_hint = hints[0].get("hint")
+                if first_hint:
+                    fallback_text = f"{fallback_text} Nota: {first_hint}"
             return {
                 "source": "fallback_sim",
                 "npc_id": npc_id,
-                "reply": FALLBACK_NPC.get(npc_id, FALLBACK_NPC["secbot"]),
+                "reply": fallback_text,
                 "model": OLLAMA_MODEL,
                 "latency_ms": latency,
             }

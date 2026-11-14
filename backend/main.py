@@ -9,7 +9,7 @@ whenever local infrastructure is unreachable or times out.
 """
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 import asyncio
@@ -17,12 +17,14 @@ import json
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 # Load backend/.env before importing services that read os.getenv() at module import time.
 load_dotenv(Path(__file__).parent / ".env")
 
 from backend.ai_service import ai_service  # noqa: E402
 from backend.cml_service import cml_service  # noqa: E402
+from backend.console_session import console_session_manager  # noqa: E402
 from backend.room_labs import ROOMS, SILENT_LOCKS, ConsoleBridge, node_spec, room_manager, room_spec  # noqa: E402
 from backend.netagent_verifier import MISSION_SPECS, verify_mission  # noqa: E402
 from backend.topology_agent import generate_mission_topology  # noqa: E402
@@ -36,6 +38,18 @@ from backend.models import (  # noqa: E402
     SocSinkholeRequest,
     TerminalCommandRequest,
 )
+
+
+class ConsoleSendRequest(BaseModel):
+    data: str
+
+
+class RoomReloadRequest(BaseModel):
+    node: Optional[str] = None
+
+
+class FaultInjectionRequest(BaseModel):
+    fault_type: Optional[str] = None
 
 app = FastAPI(title="Cisco Cyber Office - M4 Orchestrator", version="0.5.0")
 
@@ -140,6 +154,33 @@ async def room_verify(room_id: str) -> Dict[str, Any]:
         return await room_manager.verify(room_id)
     except RuntimeError as exc:
         raise HTTPException(409, str(exc))
+
+
+@app.get("/api/room/{room_id}/hint")
+async def room_hint(room_id: str, level: int = 1, device: Optional[str] = None) -> Dict[str, Any]:
+    """Indizi progressivi a 3 livelli calcolati dal diff di configurazione (B1).
+    Level 1: Dispositivo / Alto livello
+    Level 2: Sezione / Ambito
+    Level 3: Comando esatto di configurazione
+    """
+    if room_id not in ROOMS:
+        raise HTTPException(404, "stanza sconosciuta")
+    if level not in (1, 2, 3):
+        raise HTTPException(400, "level deve essere 1, 2 o 3")
+
+    from backend.config_diff import generate_hints
+    hints: List[Dict[str, Any]] = []
+    try:
+        st = room_manager.status.get(room_id, {})
+        if st.get("phase") == "ready":
+            res = await room_manager.verify(room_id)
+            hints = generate_hints(res, level=level, device_filter=device)
+        else:
+            # Fallback simulato basato su verifiche statiche della stanza
+            hints = []
+    except Exception:
+        hints = []
+    return {"room_id": room_id, "level": level, "hints": hints}
 
 
 @app.post("/api/room/{room_id}/cable")
@@ -279,9 +320,120 @@ async def terminal_command(req: TerminalCommandRequest) -> Dict[str, Any]:
         return {"source": "live_cml", "node": req.node, "command": req.command, "output": out,
                 "latency_ms": round((_t.perf_counter() - t0) * 1000, 1)}
     except Exception as exc:
+        from backend.windows_translator import translate_windows_command
+        tr = translate_windows_command(req.command)
+        if tr:
+            _, formatter = tr
+            sim_output = formatter("")
+        else:
+            sim_output = f"[SIM] {req.node}# {req.command}"
         return {"source": "fallback_sim", "node": req.node, "command": req.command,
-                "output": f"[SIM] {req.node}# {req.command}", "detail": str(exc),
+                "output": sim_output, "detail": str(exc),
                 "latency_ms": round((_t.perf_counter() - t0) * 1000, 1)}
+
+
+# ---------------------------------------------------------------------------
+# Console HTTP a sessione (A10)
+# ---------------------------------------------------------------------------
+@app.post("/api/console-session/{session_id}/send")
+async def send_console_session(session_id: str, req: ConsoleSendRequest) -> Dict[str, Any]:
+    session = console_session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(404, f"Sessione '{session_id}' non trovata o scaduta")
+    try:
+        bytes_written = session.send(req.data)
+        return {"bytes_written": bytes_written}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.get("/api/console-session/{session_id}/read")
+async def read_console_session(session_id: str, wait: float = 2.0) -> Dict[str, Any]:
+    session = console_session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(404, f"Sessione '{session_id}' non trovata o scaduta")
+    try:
+        output = await session.read(wait=wait)
+        return {"output": output}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.delete("/api/console-session/{session_id}")
+async def delete_console_session(session_id: str) -> Dict[str, Any]:
+    session = console_session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(404, f"Sessione '{session_id}' non trovata")
+    console_session_manager.close_session(session_id)
+    return {"status": "closed"}
+
+
+@app.post("/api/console-session/{room_id}/{node}")
+async def create_console_session(room_id: str, node: str) -> Dict[str, Any]:
+    if room_id not in ROOMS:
+        raise HTTPException(404, f"Stanza '{room_id}' sconosciuta")
+    ns = node_spec(room_id, node)
+    if not ns:
+        raise HTTPException(404, f"Dispositivo '{node}' non presente nella stanza '{room_id}'")
+    st = room_manager.status.get(room_id, {})
+    if st.get("phase") != "ready":
+        raise HTTPException(404, f"La rete della stanza '{room_id}' non e' accesa: {st.get('message') or st.get('phase')}")
+    spec = room_spec(room_id)
+    bridge = ConsoleBridge(spec["lab_title"], node, ns["cml_def"], asyncio.get_running_loop())
+    try:
+        await asyncio.to_thread(bridge.open)
+    except Exception as exc:
+        raise HTTPException(500, f"Impossibile aprire la console di {node}: {exc}")
+    session = console_session_manager.create_session(room_id, node, bridge)
+    return {"session_id": session.session_id, "room_id": room_id, "node": node}
+
+
+# ---------------------------------------------------------------------------
+# Reload stanza / singolo nodo (A3)
+# ---------------------------------------------------------------------------
+@app.post("/api/room/{room_id}/reload")
+async def room_reload(room_id: str, req: Optional[RoomReloadRequest] = None) -> Dict[str, Any]:
+    if room_id not in ROOMS:
+        raise HTTPException(404, "stanza sconosciuta")
+    node = req.node if req else None
+    if node and not node_spec(room_id, node):
+        raise HTTPException(404, f"dispositivo {node} non presente nella stanza {room_id}")
+    try:
+        return await room_manager.reload(room_id, node)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc))
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(400, str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Iniezione guasti casuali / specifici (C3)
+# ---------------------------------------------------------------------------
+@app.post("/api/room/{room_id}/inject-fault")
+async def room_inject_fault(room_id: str, req: Optional[FaultInjectionRequest] = None) -> Dict[str, Any]:
+    """Inietta un guasto di rete casuale o specificato nel laboratorio (C3)."""
+    if room_id not in ROOMS:
+        raise HTTPException(404, "stanza sconosciuta")
+    from backend.fault_injection import inject_fault
+    try:
+        fault_type = req.fault_type if req else None
+        return await inject_fault(room_id, fault_type)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Splunk SOC Engine (C4b)
+# ---------------------------------------------------------------------------
+@app.get("/api/soc/alerts")
+async def soc_alerts() -> Dict[str, Any]:
+    """Recupera gli allarmi di sicurezza dal REST API di Splunk (o simulazione fallback resiliente)."""
+    from backend.splunk_soc import splunk_soc
+    return await splunk_soc.get_alerts()
 
 
 @app.post("/api/soc/sinkhole")
