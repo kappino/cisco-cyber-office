@@ -23,7 +23,7 @@ load_dotenv(Path(__file__).parent / ".env")
 
 from backend.ai_service import ai_service  # noqa: E402
 from backend.cml_service import cml_service  # noqa: E402
-from backend.room_labs import ROOMS, ConsoleBridge, node_spec, room_manager, room_spec  # noqa: E402
+from backend.room_labs import ROOMS, SILENT_LOCKS, ConsoleBridge, node_spec, room_manager, room_spec  # noqa: E402
 from backend.netagent_verifier import MISSION_SPECS, verify_mission  # noqa: E402
 from backend.topology_agent import generate_mission_topology  # noqa: E402
 from backend.models import (  # noqa: E402
@@ -213,8 +213,9 @@ async def console_ws(ws: WebSocket, room_id: str, node: str) -> None:
                 if was and not now:
                     # rientra nella modalita' di prima (config, interface ...) e ridisegna il prompt,
                     # tenendo il terminale bloccato finche' non ha finito
-                    await asyncio.to_thread(bridge.restore_mode)
-                await ws.send_text(json.dumps({"type": "lock", "on": bool(now), "reason": now or ""}))
+                    await asyncio.to_thread(bridge.restore_mode, was in SILENT_LOCKS)
+                if not ((now or was) in SILENT_LOCKS):  # la lettura dei LED non si vede
+                    await ws.send_text(json.dumps({"type": "lock", "on": bool(now), "reason": now or ""}))
                 was = now
             await asyncio.sleep(0.2)
 

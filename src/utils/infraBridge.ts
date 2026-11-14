@@ -102,8 +102,10 @@ export interface RoomTopology {
   error?: string;
 }
 
+export type LedState = 'off' | 'green' | 'green_blink' | 'amber' | 'amber_blink' | 'green_amber';
+
 export interface PortLed {
-  led: 'green' | 'amber' | 'off';
+  led: LedState;
   status: string;
   vlan: string;
 }
@@ -111,7 +113,7 @@ export interface PortLed {
 export interface RoomPorts {
   room_id: string;
   ready: boolean;
-  ports: Record<string, Record<string, PortLed>>;
+  ports: Record<string, Record<string, PortLed | string | boolean>>;
 }
 
 export interface DiffLine { section: string; line: string }

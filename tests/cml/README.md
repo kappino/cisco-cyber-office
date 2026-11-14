@@ -2,7 +2,7 @@
 
 | Script | Serve CML? | Cosa verifica |
 |---|---|---|
-| `test_config_diff.py` | no | il diff running-config / target (`backend/config_diff.py`) su running-config vere salvate in `fixtures/`, guasti tipici, `interface range`, parser dei ping |
+| `test_config_diff.py` | no | il diff running-config / target (`backend/config_diff.py`) su running-config vere salvate in `fixtures/`, guasti tipici, `interface range`, parser dei ping e dei LED (STP, EtherChannel) |
 | `verify_rooms.py` | sì | accende una stanza alla volta e lancia la Verifica (`GET /api/room/<stanza>/verify`): diff per apparato + controlli DHCP/ping del file della stanza |
 | `e2e_cml.py` | sì | nella stanza "office": topologia 1:1, cavi (stacca / ricollega / sposta in un'altra VLAN con rinnovo DHCP), console WebSocket (Alpine e IOS), configurazione che resta dopo il cambio stanza |
 

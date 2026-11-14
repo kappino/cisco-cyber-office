@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { X, Cable, AlertTriangle, Unplug, ClipboardCheck, CheckCircle2, XCircle } from 'lucide-react';
 import { sound } from '../utils/audio';
-import { infraBridge, RoomPorts, RoomTopology, RoomTopologyDevice, RoomInterface, RoomVerify } from '../utils/infraBridge';
+import { infraBridge, LedState, PortLed, RoomPorts, RoomTopology, RoomTopologyDevice, RoomInterface, RoomVerify } from '../utils/infraBridge';
 import { CmlConsole } from './CmlDevicePanel';
 
 interface Props {
@@ -171,14 +171,24 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
     }
   };
 
-  const ledOf = (d: RoomTopologyDevice, i: RoomInterface): 'green' | 'amber' | 'off' => {
-    if (d.state !== 'BOOTED') return 'off';
-    const real = ports?.ports?.[d.label]?.[i.label] as { led?: 'green' | 'amber' | 'off' } | undefined;
-    if (real && real.led) return i.connected ? real.led : 'off';
-    return i.connected && i.link_state === 'STARTED' ? 'green' : 'off';
+  // stato del LED: letto dall'apparato (codifica Cisco), ma spento se in CML il cavo e' fermo o assente
+  const portInfo = (d: RoomTopologyDevice, i: RoomInterface): PortLed | undefined => {
+    const v = ports?.ports?.[d.label]?.[i.label];
+    return v && typeof v === 'object' ? (v as PortLed) : undefined;
   };
-  const ledCls = (l: 'green' | 'amber' | 'off') =>
-    l === 'green' ? 'bg-emerald-400 shadow-[0_0_6px_#34d399]' : l === 'amber' ? 'bg-amber-400 animate-pulse shadow-[0_0_6px_#fbbf24]' : 'bg-slate-700';
+  const ledOf = (d: RoomTopologyDevice, i: RoomInterface): LedState => {
+    if (d.state !== 'BOOTED' || !i.connected || i.link_state !== 'STARTED') return 'off';
+    return portInfo(d, i)?.led ?? 'green';
+  };
+  const LED_CLASS: Record<LedState, string> = {
+    off: 'led-off', green: 'led-green', green_blink: 'led-green-blink',
+    amber: 'led-amber', amber_blink: 'led-amber-blink', green_amber: 'led-green-amber',
+  };
+  const ledCls = (l: LedState) => LED_CLASS[l];
+  const systOf = (d: RoomTopologyDevice): LedState => {
+    if (d.state !== 'BOOTED') return d.state === 'STARTED' || d.state === 'QUEUED' ? 'amber' : 'off';
+    return ports?.ports?.[d.label]?._syst === 'amber' ? 'amber' : 'green';
+  };
 
   const portRef = (k: string) => (el: HTMLElement | null) => {
     if (el) portEls.current.set(k, el);
@@ -188,13 +198,13 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
   const renderPort = (d: RoomTopologyDevice, i: RoomInterface, caption?: string) => {
     const p = { node: d.label, iface: i.label };
     const led = ledOf(d, i);
-    const info = ports?.ports?.[d.label]?.[i.label];
+    const info = portInfo(d, i);
     const isSel = selected && key(selected) === key(p);
     return (
       <button
         key={i.label}
         onClick={() => onPortClick(p)}
-        title={`${d.label} ${i.label}${i.peer ? ` → ${i.peer.node} ${i.peer.iface}` : ' (libera)'}${info ? ` · ${info.status}` : ''}`}
+        title={`${d.label} ${i.label}${i.peer ? ` → ${i.peer.node} ${i.peer.iface}` : ' (libera)'}${i.connected && i.link_state !== 'STARTED' ? ' · cavo staccato' : info ? ` · ${info.status}` : ''}`}
         className={`p-1.5 rounded border text-left transition-all min-w-[64px] ${
           isSel ? 'bg-cyan-500/20 border-cyan-400 ring-2 ring-cyan-400/50 scale-105'
             : i.connected ? 'bg-slate-950 border-emerald-600/50' : 'bg-slate-950/80 border-slate-700 hover:border-cyan-500/70'
@@ -339,7 +349,7 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
                             <span className="ml-2 text-[10px] text-slate-400">{KIND_NAME[d.kind] ?? d.kind} · {d.display}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[9px] text-slate-400 shrink-0">
-                            <span className="flex items-center gap-1"><span className={`w-2 h-2 rounded-full ${d.state === 'BOOTED' ? 'bg-emerald-500 animate-pulse' : d.state === 'STARTED' || d.state === 'QUEUED' ? 'bg-amber-500' : 'bg-slate-700'}`} />SYS</span>
+                            <span className="flex items-center gap-1" title={ports?.ports?.[d.label]?._console_in_use ? 'console aperta: LED all\'ultima lettura' : ''}><span className={`w-2 h-2 rounded-full ${ledCls(systOf(d))}`} />SYST</span>
                           </div>
                         </div>
                         <div className="flex flex-wrap gap-1.5 items-end">
@@ -374,7 +384,10 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
                 <span><span className="inline-block w-3 h-1 bg-yellow-400 align-middle" /> tra apparati</span>
                 <span><span className="inline-block w-3 h-1 bg-sky-400 align-middle" /> verso le prese</span>
                 <span><span className="inline-block w-3 h-1 bg-red-400 align-middle" /> verso i server</span>
-                <span><span className="inline-block w-2 h-2 rounded-full bg-amber-400 align-middle" /> errore o bloccata da STP</span>
+                <span><span className="inline-block w-2 h-2 rounded-full led-green-blink align-middle" /> traffico</span>
+                <span><span className="inline-block w-2 h-2 rounded-full led-amber align-middle" /> STP in verifica / err-disabled</span>
+                <span><span className="inline-block w-2 h-2 rounded-full led-amber-blink align-middle" /> bloccata da STP</span>
+                <span><span className="inline-block w-2 h-2 rounded-full led-green-amber align-middle" /> errori sul link</span>
               </div>
             </div>
 

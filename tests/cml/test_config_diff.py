@@ -67,6 +67,19 @@ def test_parser_ping_busybox():
     assert parse_ping("ping: sendto: Network unreachable")["success"] is False
 
 
+def test_parser_led_stp_etherchannel():
+    from backend.room_labs import parse_etherchannel, parse_stp
+    stp_txt, ec_txt = (FIX / "corridor_SW-DIST.leds.txt").read_text(encoding="utf-8").split("\n#####\n")[:2]
+    stp = parse_stp(stp_txt)
+    assert ("10", "Desg", "FWD") in stp["Port-channel1"]
+    assert all(s == "FWD" for _, _, s in stp["Ethernet1/0"])
+    flags, owner = parse_etherchannel(ec_txt)
+    assert flags == {"Ethernet0/1": "P", "Ethernet0/2": "P"}
+    assert owner["Ethernet0/1"] == "Port-channel1"
+    blk = parse_stp("VLAN0010\nInterface Role Sts\nEt1/0               Altn BLK 100       128.5    P2p\n")
+    assert blk == {"Ethernet1/0": [("10", "Altn", "BLK")]}
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):

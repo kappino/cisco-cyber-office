@@ -211,9 +211,16 @@ def _run_console_commands(lab_title: str, node_label: str, cml_def: str, command
     ssh, chan, _ = open_console(lab_title, node_label)
     try:
         linux = cml_def in LINUX_DEFS
-        chan.send("\x15\r")  # Ctrl+U: cancella un'eventuale riga lasciata a meta' da un giocatore
-        out = _read_until(chan, lambda s: bool(s.strip()) and (
-            "login:" in s[-60:] or bool((LINUX_PROMPT if linux else IOS_PROMPT).search(s.rstrip("\r\n").splitlines()[-1]))), 4)
+        woke = lambda s: bool(s.strip()) and (  # noqa: E731
+            "login:" in s[-60:] or bool((LINUX_PROMPT if linux else IOS_PROMPT).search(s.rstrip("\r\n").splitlines()[-1])))
+        # Ctrl+C (interrompe comandi rimasti appesi), Ctrl+U (cancella una riga lasciata a meta'),
+        # poi Invio finche' non compare il prompt: la console puo' essere ferma dopo l'avvio
+        out = ""
+        for wake in ("\x03\x15\r", "\r", "\r"):
+            chan.send(wake)
+            out += _read_until(chan, woke, 4)
+            if woke(out):
+                break
         if linux:
             _linux_login(chan, out)
         else:
@@ -306,6 +313,143 @@ def first_boot_fixups(spec: Dict[str, Any]) -> List[Tuple[str, List[str]]]:
             if lines:
                 out.append((n["label"], lines))
     return out
+
+
+# ---------------------------------------------------------------------------
+# LED delle porte, come il LED STAT degli switch Catalyst (2960/9200):
+#   spento            nessun link, shutdown, cavo staccato
+#   verde fisso       link su, inoltra, nessun traffico
+#   verde lampeggiante  traffico (oltre il rumore di controllo: BPDU, keepalive)
+#   ambra fisso       STP non ancora in inoltro (listening/learning), err-disabled, membro EtherChannel sospeso
+#   ambra lampeggiante  porta bloccata da STP (alternate/backup, BLK)
+#   verde/ambra alternato  errori sul link (CRC, input/output errors in aumento)
+# ---------------------------------------------------------------------------
+ACTIVITY_PPS = 5.0  # pacchetti/s sopra i quali la porta "lampeggia" (BPDU, LACP e keepalive stanno sotto)
+
+
+def _short_to_full(port: str) -> str:
+    return re.sub(r"^Et(?=\d)", "Ethernet", re.sub(r"^Po(?=\d)", "Port-channel", port))
+
+
+def parse_interface_counters(text: str) -> Dict[str, Dict[str, Any]]:
+    """`show interfaces | include ...` -> {porta: {up, proto, extra, pkts, errs}}."""
+    res: Dict[str, Dict[str, Any]] = {}
+    cur = None
+    for line in text.splitlines():
+        m = re.match(r"^(\S+) is (administratively down|up|down), line protocol is (up|down)\s*(?:\((\S+)\))?", line)
+        if m:
+            cur = m.group(1)
+            res[cur] = {"status": m.group(2), "proto": m.group(3), "extra": m.group(4) or "", "pkts": 0, "errs": 0}
+            continue
+        if not cur:
+            continue
+        m = re.search(r"(\d+) packets (input|output)", line)
+        if m:
+            res[cur]["pkts"] += int(m.group(1))
+        m = re.search(r"(\d+) (input|output) errors", line)
+        if m:
+            res[cur]["errs"] += int(m.group(1))
+    return res
+
+
+def parse_stp(text: str) -> Dict[str, List[Tuple[str, str, str]]]:
+    """`show spanning-tree` -> {porta: [(vlan, ruolo, stato), ...]}."""
+    res: Dict[str, List[Tuple[str, str, str]]] = {}
+    vlan = ""
+    for line in text.splitlines():
+        m = re.match(r"^VLAN0*(\d+)", line)
+        if m:
+            vlan = m.group(1)
+            continue
+        m = re.match(r"^((?:Et|Po)\S+)\s+(Root|Desg|Altn|Back|Mstr|Shr)\s+(\w+)", line)
+        if m:
+            res.setdefault(_short_to_full(m.group(1)), []).append((vlan, m.group(2), m.group(3)))
+    return res
+
+
+def parse_etherchannel(text: str) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """`show etherchannel summary` -> ({membro: flag}, {membro: Port-channelN})."""
+    flags: Dict[str, str] = {}
+    owner: Dict[str, str] = {}
+    for line in text.splitlines():
+        m = re.match(r"^\s*\d+\s+(Po\d+)\(\w+\)\s+\S+\s+(.*)$", line)
+        if m:
+            for mm in re.finditer(r"(Et\S+?)\((\w+)\)", m.group(2)):
+                full = _short_to_full(mm.group(1))
+                flags[full] = mm.group(2)
+                owner[full] = _short_to_full(m.group(1))
+    return flags, owner
+
+
+def read_port_leds(lab_title: str, n: Dict[str, Any],
+                   counters: Dict[Tuple[str, str], Tuple[float, int, int]]) -> Dict[str, Any]:
+    """Legge lo stato vero delle porte di uno switch o router e lo traduce nei LED Cisco."""
+    is_switch = n.get("kind") == "switch"
+    cmds = ["show interfaces | include line protocol|packets input|packets output|input errors|output errors"]
+    if is_switch:
+        cmds += ["show interfaces status", "show spanning-tree", "show etherchannel summary"]
+    outs = run_console_commands(lab_title, n["label"], n["cml_def"], cmds, timeout=10)
+    ifs = parse_interface_counters(outs[0])
+    status: Dict[str, Tuple[str, str]] = {}
+    stp: Dict[str, List[Tuple[str, str, str]]] = {}
+    ec_flags: Dict[str, str] = {}
+    ec_owner: Dict[str, str] = {}
+    if is_switch:
+        for m in re.finditer(r"^((?:Et|Po)\S+)\s.*?\s(connected|notconnect|disabled|err-disabled|inactive|suspended)\s+(\S+)",
+                             outs[1], re.M):
+            status[_short_to_full(m.group(1))] = (m.group(2), m.group(3))
+        stp = parse_stp(outs[2])
+        ec_flags, ec_owner = parse_etherchannel(outs[3])
+
+    now = time.time()
+    res: Dict[str, Any] = {}
+    syst_fault = False
+    for port, c in ifs.items():
+        if not port.startswith("Ethernet") or "." in port:
+            continue  # sottointerfacce e SVI non hanno LED
+        key = (n["label"], port)
+        prev = counters.get(key)
+        counters[key] = (now, c["pkts"], c["errs"])
+        dt = (now - prev[0]) if prev else 0
+        pps = (c["pkts"] - prev[1]) / dt if prev and dt > 0 else 0.0
+        new_errs = (c["errs"] - prev[2]) if prev else 0
+        st, vlan = status.get(port, ("connected" if c["status"] == "up" else "disabled" if "admin" in c["status"] else "notconnect",
+                                     ""))
+        if not is_switch:
+            vlan = ""
+        reason = st
+        if c["status"] == "administratively down" or st == "disabled":
+            led, reason = "off", "shutdown"
+        elif st == "err-disabled" or c["extra"] == "err-disabled":
+            led, reason = "amber", "err-disabled"
+            syst_fault = True
+        elif c["status"] != "up" or c["proto"] != "up" or st == "notconnect":
+            led, reason = "off", "nessun link"
+        elif ec_flags.get(port) in ("s", "I", "w", "D"):
+            led, reason = "amber", f"EtherChannel: membro non nel canale ({ec_flags[port]})"
+        else:
+            states = stp.get(ec_owner.get(port, port), [])
+            fwd = [x for x in states if x[2] == "FWD"]
+            blk = [x for x in states if x[2] in ("BLK", "DIS", "BKN")]
+            lrn = [x for x in states if x[2] in ("LRN", "LIS")]
+            if states and not fwd and blk:
+                led = "amber_blink"
+                reason = "STP: bloccata (" + ", ".join(f"VLAN {v} {r} {s}" for v, r, s in blk[:3]) + ")"
+            elif states and not fwd and lrn:
+                led = "amber"
+                reason = "STP: in verifica (" + ", ".join(f"VLAN {v} {s}" for v, r, s in lrn[:3]) + ")"
+            elif new_errs > 0:
+                led, reason = "green_amber", f"errori sul link (+{new_errs})"
+                syst_fault = True
+            elif pps > ACTIVITY_PPS:
+                led, reason = "green_blink", f"traffico ({pps:.0f} pacchetti/s)"
+            else:
+                led, reason = "green", "link su, inoltro"
+            if blk and fwd:
+                reason += " · bloccata in " + ", ".join(f"VLAN {v}" for v, r, s in blk[:3])
+        res[port] = {"led": led, "status": reason, "vlan": vlan or ("trunk" if ec_owner.get(port) else "")}
+    res["_syst"] = "amber" if syst_fault else "green"
+    return res
 
 
 # ---------------------------------------------------------------------------
@@ -664,6 +808,7 @@ class RoomManager:
 
     # ---- LED delle porte, letti dagli apparati -----------------------------
     _ports_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+    _counters: Dict[Tuple[str, str], Tuple[float, int, int]] = {}  # (nodo, porta) -> (t, pacchetti, errori)
 
     async def ports(self, room_id: str) -> Dict[str, Any]:
         """Stato reale delle porte: switch `show interfaces status` + porte bloccate da STP,
@@ -676,37 +821,30 @@ class RoomManager:
             return {"room_id": room_id, "ready": False, "ports": {}}
 
         def read(n: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
-            res: Dict[str, Any] = {}
             try:
-                if n.get("kind") == "switch":
-                    st, bl = run_console_commands(spec["lab_title"], n["label"], n["cml_def"],
-                                                  ["show interfaces status", "show spanning-tree blockedports"])
-                    blocked = {m.group(1) for m in re.finditer(r"^VLAN\d+\s+([\w/,\- ]+)$", bl, re.M)}
-                    blocked = {p.strip() for b in blocked for p in b.split(",") if p.strip()}
-                    for m in re.finditer(r"^((?:Et|Po)\S+)\s.*?\s(connected|notconnect|disabled|err-disabled|inactive)\s+(\S+)",
-                                         st, re.M):
-                        port, state, vlan = m.groups()
-                        full = port.replace("Et", "Ethernet", 1).replace("Po", "Port-channel", 1)
-                        led = "green" if state == "connected" else "amber" if state == "err-disabled" else "off"
-                        if port in blocked and state == "connected":
-                            led, state = "amber", "STP blocking"
-                        res[full] = {"led": led, "status": state, "vlan": vlan}
-                elif n.get("kind") == "router":
-                    (st,) = run_console_commands(spec["lab_title"], n["label"], n["cml_def"], ["show ip interface brief"])
-                    for m in re.finditer(r"^(Ethernet\d+/\d+)\s+(\S+)\s+\S+\s+\S+\s+(administratively down|up|down)\s+(up|down)",
-                                         st, re.M):
-                        iface, ip, status, proto = m.groups()
-                        led = "green" if status == "up" and proto == "up" else "off"
-                        res[iface] = {"led": led, "status": f"{status}/{proto}", "vlan": ip}
+                return n["label"], read_port_leds(spec["lab_title"], n, self._counters)
             except Exception as exc:  # porta senza dati: il gioco usa lo stato del cavo
-                res["_error"] = str(exc)
-            return n["label"], res
+                return n["label"], {"_error": str(exc)}
 
         nodes = [n for n in spec["nodes"] if n.get("kind") in ("switch", "router") and n["cml_def"] in IOS_DEFS]
-        busy = [n for n in nodes if OPEN_CONSOLES.get((spec["lab_title"], n["label"]))
-                or (spec["lab_title"], n["label"]) in CONSOLE_LOCKS]
-        free = [n for n in nodes if n not in busy]
-        pairs = dict(await asyncio.gather(*[asyncio.to_thread(read, n) for n in free]))
+        title = spec["lab_title"]
+
+        def can_freeze(n: Dict[str, Any]) -> bool:
+            bridges = OPEN_BRIDGES.get((title, n["label"]), [])
+            return bool(bridges) and all(b.idle() for b in bridges) and (title, n["label"]) not in CONSOLE_LOCKS
+
+        async def read_frozen(n: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+            # mini-freeze trasparente: blocco silenzioso, lettura, ripristino di modalita' e riga del giocatore
+            with console_lock(title, [n["label"]], "LED"):
+                await asyncio.sleep(0.5)  # il ponte annota la modalita' prima che partano i comandi
+                return await asyncio.to_thread(read, n)
+
+        busy = [n for n in nodes if (OPEN_CONSOLES.get((title, n["label"])) and not can_freeze(n))
+                or (title, n["label"]) in CONSOLE_LOCKS]
+        frozen = [n for n in nodes if n not in busy and OPEN_CONSOLES.get((title, n["label"]))]
+        free = [n for n in nodes if n not in busy and n not in frozen]
+        pairs = dict(await asyncio.gather(*[asyncio.to_thread(read, n) for n in free],
+                                          *[read_frozen(n) for n in frozen]))
         previous = (hit[1]["ports"] if hit else {})
         for n in busy:  # console in uso da un giocatore: nessun comando automatico, ultimo valore noto
             pairs[n["label"]] = {**previous.get(n["label"], {}), "_console_in_use": True}
@@ -817,6 +955,11 @@ class console_lock:
             CONSOLE_LOCKS.pop(k, None)
 
 
+# blocchi brevi che il giocatore non deve vedere (nessun avviso, tasti messi in coda)
+SILENT_LOCKS = {"LED"}
+# ponti WebSocket aperti per nodo (per sapere se il terminale del giocatore e' inattivo)
+OPEN_BRIDGES: Dict[Tuple[str, str], List["ConsoleBridge"]] = {}
+
 # console aperte dai giocatori: (lab, nodo) -> numero di sessioni. La console seriale e' una linea
 # condivisa: su questi nodi il backend non manda comandi automatici (es. lettura dei LED).
 OPEN_CONSOLES: Dict[Tuple[str, str], int] = {}
@@ -840,11 +983,16 @@ class ConsoleBridge:
         self.submode_cmd: Optional[str] = None
         self._saved: Optional[Tuple[str, Optional[str]]] = None
         self._suppress = False
+        self.pending = ""        # riga che il giocatore sta scrivendo (tasti non ancora inviati con Invio)
+        self.queued = ""         # tasti arrivati durante un blocco: si inviano dopo
+        self.last_key = 0.0
+        self.last_output = 0.0
 
     def open(self) -> None:
         self.ssh, self.chan, rest = open_console(self.lab_title, self.node_label, self.cols, self.rows)
         k = (self.lab_title, self.node_label)
         OPEN_CONSOLES[k] = OPEN_CONSOLES.get(k, 0) + 1
+        OPEN_BRIDGES.setdefault(k, []).append(self)
         self._registered = True
         self.chan.settimeout(0.5)
         if rest.strip():
@@ -871,6 +1019,7 @@ class ConsoleBridge:
                 if (self.lab_title, self.node_label) in CONSOLE_LOCKS or self._suppress:
                     continue  # output di un'operazione automatica: il giocatore non lo vede
                 self._track(data)
+                self.last_output = time.time()
                 self._emit(data)
                 if not logged_in and time.time() - t0 < 30:
                     tail = (tail + data.decode(errors="ignore"))[-80:]
@@ -919,32 +1068,72 @@ class ConsoleBridge:
         mode = "exec" if sign == ">" else "priv" if not cfg else "config" if cfg == "config" else "submode"
         self._saved = (mode, self.submode_cmd if mode == "submode" else None)
 
-    def restore_mode(self) -> None:
-        """Dopo la Verifica: rientra nella modalita' annotata senza mostrarlo, poi ridisegna il prompt."""
+    def restore_mode(self, silent: bool = False) -> None:
+        """Dopo un blocco: rientra nella modalita' annotata senza mostrarlo e rimette la riga che il
+        giocatore stava scrivendo. `silent` (lettura LED): lo schermo mostra ancora il prompt di prima,
+        quindi niente prompt nuovo e la riga viene riscritta sul dispositivo senza eco."""
         saved, self._saved = self._saved, None
         if not (self.chan and not self.chan.closed):
             return
-        if saved and saved[0] != "priv":
-            self._suppress = True
-            try:
+        typed, self.queued = self.pending, self.queued
+        self.pending = ""
+        if typed and "\x1b" in typed:
+            typed = ""  # frecce e sequenze di escape non si possono rigiocare in modo sicuro
+        self._suppress = True
+        try:
+            if saved and saved[0] != "priv":
                 mode, sub = saved
                 cmds = ["disable"] if mode == "exec" else ["configure terminal"] + ([sub] if mode == "submode" and sub else [])
                 for c in cmds:
                     self.chan.send(c + "\r")
                     time.sleep(0.4)
+            if silent:
                 time.sleep(0.4)
-            finally:
-                self._suppress = False
-        self.chan.send("\r")
+                if typed:
+                    self._note_keys(typed)
+                    self.chan.send(typed)  # riga del giocatore, gia' visibile sul suo schermo
+                time.sleep(0.4)
+            else:
+                time.sleep(0.4)
+        finally:
+            self._suppress = False
+        if not silent:
+            self.chan.send("\r")  # prompt nuovo dopo la Verifica
+            if typed:
+                time.sleep(0.3)
+                self._note_keys(typed)
+                self.chan.send(typed)
+        queued, self.queued = self.queued, ""
+        if queued:
+            self._note_keys(queued)
+            self.chan.send(queued)
 
     def locked(self) -> Optional[str]:
         return CONSOLE_LOCKS.get((self.lab_title, self.node_label))
 
+    def idle(self, quiet_s: float = 3.0) -> bool:
+        """Il giocatore non digita e il terminale e' fermo al prompt (nessun comando in corso)."""
+        now = time.time()
+        at_prompt = bool(self.last_prompt) and bool(self._PROMPT.search(self._text)) if self.cml_def in IOS_DEFS else True
+        return now - self.last_key > quiet_s and now - self.last_output > 1.5 and at_prompt
+
     def send(self, data: str) -> None:
+        self.last_key = time.time()
         if self.locked():
-            return  # tasti ignorati mentre la console e' bloccata
+            self.queued += data  # tasti durante un blocco: inviati appena finisce
+            return
+        self._note_keys(data)
         if self.chan and not self.chan.closed:
             self.chan.send(data)
+
+    def _note_keys(self, data: str) -> None:
+        for ch in data:
+            if ch in "\r\n\x03\x15\x1a":
+                self.pending = ""
+            elif ch in "\x7f\x08":
+                self.pending = self.pending[:-1]
+            else:
+                self.pending += ch
 
     def redraw_prompt(self) -> None:
         if self.chan and not self.chan.closed:
@@ -961,6 +1150,10 @@ class ConsoleBridge:
             OPEN_CONSOLES[k] = max(0, OPEN_CONSOLES.get(k, 1) - 1)
             if not OPEN_CONSOLES[k]:
                 OPEN_CONSOLES.pop(k, None)
+            if self in OPEN_BRIDGES.get(k, []):
+                OPEN_BRIDGES[k].remove(self)
+                if not OPEN_BRIDGES[k]:
+                    OPEN_BRIDGES.pop(k, None)
             self._registered = False
         try:
             if self.ssh:
