@@ -1,0 +1,72 @@
+mission_id: cyber_day3_auth
+mission_title: "Cyber Giorno 3: Credenziali & Cifratura (HTTP vs HTTPS)"
+description: "Il pannello di gestione su 192.168.20.10 usa credenziali predefinite (admin/admin) su HTTP in chiaro. Red Team testa l'accesso e cattura pacchetti; Blue Team cambia password e attiva cifratura."
+osi_layer: "Layer 7 (Auth & Encryption)"
+
+nodes:
+  - label: SW-CORRIDOR
+    role: switch
+    cml_def: ioll2-xe
+    x: -80
+    y: 0
+    faulty_config:
+      - "hostname SW-CORRIDOR"
+      - "vlan 10"
+      - " name UTENTI"
+      - "vlan 20"
+      - " name SERVER"
+      - "interface Ethernet0/0"
+      - " switchport trunk encapsulation dot1q"
+      - " switchport mode trunk"
+      - " no shutdown"
+      - "interface Ethernet0/1"
+      - " switchport mode access"
+      - " switchport access vlan 10"
+      - " no shutdown"
+      - "interface Ethernet0/2"
+      - " switchport mode access"
+      - " switchport access vlan 20"
+      - " no shutdown"
+
+  - label: FW-RTR-01
+    role: router
+    cml_def: iol-xe
+    x: 160
+    y: 0
+    faulty_config:
+      - "hostname FW-RTR-01"
+      - "interface Ethernet0/0"
+      - " no shutdown"
+      - "interface Ethernet0/0.10"
+      - " encapsulation dot1Q 10"
+      - " ip address 192.168.10.1 255.255.255.0"
+      - "interface Ethernet0/0.20"
+      - " encapsulation dot1Q 20"
+      - " ip address 192.168.20.1 255.255.255.0"
+
+  - label: PC-ATTACKER
+    role: attacker
+    cml_def: alpine
+    x: -180
+    y: 160
+    ip_config:
+      ip: "192.168.10.77/24"
+      gw: "192.168.10.1"
+
+  - label: SRV-PRENOTAZIONI
+    role: server
+    cml_def: alpine
+    x: 40
+    y: 160
+    ip_config:
+      ip: "192.168.20.10/24"
+      gw: "192.168.20.1"
+    http_panel: true
+
+links:
+  - src_node: SW-CORRIDOR
+    dst_node: FW-RTR-01
+  - src_node: SW-CORRIDOR
+    dst_node: PC-ATTACKER
+  - src_node: SW-CORRIDOR
+    dst_node: SRV-PRENOTAZIONI

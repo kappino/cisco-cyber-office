@@ -28,7 +28,8 @@ else
   echo "  - Ollama 127.0.0.1:11434: UNREACHABLE (will use SIM_FALLBACK)"
 fi
 
-echo "[4/4] Starting FastAPI backend (port 8000) and Vite frontend..."
+echo "[4/4] Installing frontend deps, starting FastAPI backend (port 8000) and Vite frontend..."
+npm install --no-audit --no-fund --loglevel=error
 uvicorn backend.main:app --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!
 trap 'kill $BACKEND_PID 2>/dev/null || true' EXIT

@@ -15,7 +15,7 @@ class PatchRequest(BaseModel):
 class TerminalCommandRequest(BaseModel):
     """Cisco IOS CLI command forwarded from CrtTerminalGame."""
 
-    node: str = Field("SW-CORE-01", description="Target CML node label")
+    node: str = Field("SW-ACC", description="Target CML node label (nodo della stanza attiva)")
     command: str = Field(..., description="IOS command string entered by the player")
 
 

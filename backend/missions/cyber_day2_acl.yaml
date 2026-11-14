@@ -1,0 +1,98 @@
+mission_id: cyber_day2_acl
+mission_title: "Cyber Giorno 2: Chi può entrare? (ACL & Minimo Permesso)"
+description: "Il server Prenotazioni (192.168.20.10) deve essere raggiungibile solo da PC Reception (192.168.10.50). La ACL su FW-RTR-01 ha 'permit ip any any' in cima."
+osi_layer: "Layer 3/4 (ACL & Zone Filtering)"
+
+nodes:
+  - label: SW-CORRIDOR
+    role: switch
+    cml_def: ioll2-xe
+    x: -100
+    y: 0
+    faulty_config:
+      - "hostname SW-CORRIDOR"
+      - "vlan 10"
+      - " name ZONA_UTENTI"
+      - "vlan 20"
+      - " name ZONA_SERVER"
+      - "interface Ethernet0/0"
+      - " switchport trunk encapsulation dot1q"
+      - " switchport mode trunk"
+      - " no shutdown"
+      - "interface Ethernet0/1"
+      - " switchport mode access"
+      - " switchport access vlan 10"
+      - " no shutdown"
+      - "interface Ethernet0/2"
+      - " switchport mode access"
+      - " switchport access vlan 10"
+      - " no shutdown"
+      - "interface Ethernet0/3"
+      - " switchport mode access"
+      - " switchport access vlan 20"
+      - " no shutdown"
+
+  - label: FW-RTR-01
+    role: router
+    cml_def: iol-xe
+    x: 160
+    y: 0
+    faulty_config:
+      - "hostname FW-RTR-01"
+      - "interface Ethernet0/0"
+      - " no shutdown"
+      - "interface Ethernet0/0.10"
+      - " encapsulation dot1Q 10"
+      - " ip address 192.168.10.1 255.255.255.0"
+      - "interface Ethernet0/0.20"
+      - " encapsulation dot1Q 20"
+      - " ip address 192.168.20.1 255.255.255.0"
+      - " ip access-group ACL_PRENOTAZIONI out"
+      - "ip access-list extended ACL_PRENOTAZIONI"
+      - " 10 permit ip any any"
+      - " 20 permit ip host 192.168.10.50 host 192.168.20.10"
+      - " 30 deny ip any host 192.168.20.10"
+
+  - label: PC-RECEPTION
+    role: host
+    cml_def: alpine
+    x: -240
+    y: 160
+    ip_config:
+      ip: "192.168.10.50/24"
+      gw: "192.168.10.1"
+
+  - label: PC-AULA
+    role: host
+    cml_def: alpine
+    x: -80
+    y: 160
+    ip_config:
+      ip: "192.168.10.30/24"
+      gw: "192.168.10.1"
+
+  - label: SRV-PRENOTAZIONI
+    role: server
+    cml_def: alpine
+    x: 80
+    y: 160
+    ip_config:
+      ip: "192.168.20.10/24"
+      gw: "192.168.20.1"
+
+links:
+  - src_node: SW-CORRIDOR
+    dst_node: FW-RTR-01
+  - src_node: SW-CORRIDOR
+    dst_node: PC-RECEPTION
+  - src_node: SW-CORRIDOR
+    dst_node: PC-AULA
+  - src_node: SW-CORRIDOR
+    dst_node: SRV-PRENOTAZIONI
+
+rules:
+  - id: acl_no_permit_any_top
+    iface: Ethernet0/0.20
+    child_regex: 'ip\s+access-group\s+ACL_PRENOTAZIONI\s+out'
+    label: "ACL_PRENOTAZIONI applicata in uscita su E0/0.20"
+    fix_cmd: "no 10 (rimuovi permit ip any any da ACL_PRENOTAZIONI)"
