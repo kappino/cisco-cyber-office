@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { sound } from '../utils/audio';
+import { infraBridge } from '../utils/infraBridge';
 import confetti from 'canvas-confetti';
 import { ArrowLeft, CheckCircle2, RotateCcw, Terminal as TerminalIcon, Sparkles } from 'lucide-react';
 import { TerminalHistoryItem } from '../types/game';
@@ -118,6 +119,12 @@ export const CrtTerminalGame: React.FC<Props> = ({ onBack, onComplete, isComplet
       setHistory(prev => [...prev, ...newItems]);
       return;
     }
+
+    void infraBridge.execCommand('SW-CORE-01', cmd).then((res) => {
+      if (res.source === 'live_cml') {
+        setHistory(prev => [...prev, { type: 'system', text: res.output }]);
+      }
+    });
 
     // Common navigation / info commands
     if (lower === 'help' || lower === '?') {
@@ -247,6 +254,39 @@ Tutti i pacchetti del dipartimento Dev ora transitano correttamente!
     }
   };
 
+  const handleVerifyNetAgent = async () => {
+    sound.playClick();
+    const playerCommands = history
+      .filter((h) => h.type === 'input')
+      .map((h) => h.text.replace(/^[^\s>#]+[>#]\s*/, '').trim())
+      .filter(Boolean);
+    setHistory(prev => [...prev, { type: 'system', text: '[netAgent] Confronto configurazione giocatore vs ideale...' }]);
+    const res = await infraBridge.verifyMission('terminal', playerCommands);
+    setHistory(prev => [
+      ...prev,
+      {
+        type: res.passed ? 'success' : 'error',
+        text: `[netAgent ${res.source}] Score: ${res.scorePct}% | OK: ${res.matched.length} | Mancanti: ${res.missing.join('; ') || 'Nessuno'}`,
+      },
+      ...(res.diffLines.length > 0
+        ? [{ type: 'output' as const, text: `Diff ideale da applicare: ${res.diffLines.join(' | ')}` }]
+        : []),
+    ]);
+  };
+
+  const handleAskSecBot = async () => {
+    sound.playClick();
+    setHistory(prev => [...prev, { type: 'system', text: '[SecBot AI] Analisi del contesto CLI in corso...' }]);
+    const res = await infraBridge.askMentorHint('terminal', `Mode=${mode}`);
+    setHistory(prev => [
+      ...prev,
+      {
+        type: 'success',
+        text: `[SecBot ${res.source === 'live_ai' ? 'LIVE' : 'SIM'} - ${res.osiLayer}] ${res.hint} (Prova: ${res.suggestedCheck})`,
+      },
+    ]);
+  };
+
   const handleReset = () => {
     sound.playClick();
     setMode('user');
@@ -286,6 +326,18 @@ Tutti i pacchetti del dipartimento Dev ora transitano correttamente!
               <CheckCircle2 className="w-4 h-4" /> Switch Operativo al 100%!
             </span>
           )}
+          <button
+            onClick={handleVerifyNetAgent}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/50 transition-colors text-xs font-bold"
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" /> Verifica netAgent
+          </button>
+          <button
+            onClick={handleAskSecBot}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/50 transition-colors text-xs font-bold"
+          >
+            <Sparkles className="w-3.5 h-3.5" /> Chiedi a SecBot (AI)
+          </button>
           <button
             onClick={handleReset}
             className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg border border-slate-700 transition"

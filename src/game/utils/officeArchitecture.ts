@@ -83,7 +83,7 @@ export function buildOfficeArchitecture(scene: Phaser.Scene): Phaser.GameObjects
     const p=gridToScreen(x,y);
     objects.push(scene.add.text(p.x,p.y-67,text,{fontFamily:'Arial, sans-serif',fontSize:'9px',resolution:3,fontStyle:'bold',color:'#52605c',letterSpacing:2}).setDepth(4).setOrigin(0.5).setAngle(26.565));
   };
-  label(3.1,0,'PARTENOPE / STUDIO RETI');
+  label(3.1,0,'CISCO / STUDIO RETI');
 
 
   // Furnishings hug the perimeter; the route between mentor, coffee and door stays clear.

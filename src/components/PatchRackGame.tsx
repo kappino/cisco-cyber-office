@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { sound } from '../utils/audio';
+import { infraBridge } from '../utils/infraBridge';
 import confetti from 'canvas-confetti';
 import { ArrowLeft, CheckCircle2, RotateCcw, AlertTriangle, ShieldCheck, Zap } from 'lucide-react';
 
@@ -38,6 +39,8 @@ export const PatchRackGame: React.FC<Props> = ({ onBack, onComplete, isCompleted
   const [connections, setConnections] = useState<Record<string, string>>({});
   const [completed, setCompleted] = useState<boolean>(initialCompleted);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [cmlBadge, setCmlBadge] = useState<string>('[SIM MODE]');
+  const [verifyBadge, setVerifyBadge] = useState<string | null>(null);
 
   const handleSourceClick = (portId: string) => {
     sound.playClick();
@@ -65,6 +68,9 @@ export const PatchRackGame: React.FC<Props> = ({ onBack, onComplete, isCompleted
       setConnections(nextConnections);
       setSelectedSource(null);
       setErrorMsg(null);
+      void infraBridge.patchCable(switchPortId, selectedSource, true).then((res) => {
+        setCmlBadge(res.mode === 'live_cml' ? `[CML LIVE: ${switchPortId} UP]` : '[SIM MODE]');
+      });
 
       // Check if all 4 are connected
       if (Object.keys(nextConnections).length === PATCH_PORTS.length) {
@@ -83,12 +89,26 @@ export const PatchRackGame: React.FC<Props> = ({ onBack, onComplete, isCompleted
     }
   };
 
+  const handleVerifyRack = async () => {
+    sound.playClick();
+    const patchedPorts: Record<string, boolean> = {};
+    Object.values(connections).forEach((swPort) => {
+      patchedPorts[swPort] = true;
+    });
+    const res = await infraBridge.verifyMission('rack', [], { patched_ports: patchedPorts });
+    setVerifyBadge(`netAgent: ${res.scorePct}% (${res.passed ? 'PASS' : `${res.missing.length} mancanti`})`);
+  };
+
   const resetRack = () => {
     sound.playClick();
+    Object.entries(connections).forEach(([srcId, swPort]) => {
+      void infraBridge.patchCable(swPort, srcId, false);
+    });
     setConnections({});
     setSelectedSource(null);
     setErrorMsg(null);
     setCompleted(false);
+    setCmlBadge('[SIM MODE]');
   };
 
   return (
@@ -105,6 +125,9 @@ export const PatchRackGame: React.FC<Props> = ({ onBack, onComplete, isCompleted
           <div>
             <h2 className="text-xl sm:text-2xl font-bold text-cisco-blue flex items-center gap-2 font-mono">
               <Zap className="w-6 h-6 text-cisco-gold" /> Datacenter Rack 01: Cablaggio Strutturato
+              <span className={`text-[10px] px-2 py-0.5 rounded border ${cmlBadge.includes('LIVE') ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300' : 'bg-slate-800 border-slate-600 text-slate-400'}`}>
+                {cmlBadge}
+              </span>
             </h2>
             <p className="text-xs sm:text-sm text-slate-400">
               Collega fisicamente le patch lead dal Patch Panel allo Switch Cisco Catalyst 9300.
@@ -113,6 +136,17 @@ export const PatchRackGame: React.FC<Props> = ({ onBack, onComplete, isCompleted
         </div>
 
         <div className="flex items-center gap-2">
+          {verifyBadge && (
+            <span className="px-2.5 py-1 rounded-full bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 text-xs font-mono">
+              {verifyBadge}
+            </span>
+          )}
+          <button
+            onClick={() => void handleVerifyRack()}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/50 transition-colors text-xs font-bold"
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" /> Verifica netAgent
+          </button>
           {completed && (
             <span className="flex items-center gap-1.5 px-3 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 rounded-full text-xs font-semibold animate-pulse">
               <CheckCircle2 className="w-4 h-4" /> Rack Online & Connesso!

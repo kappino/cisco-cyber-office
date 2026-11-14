@@ -1,0 +1,106 @@
+mission_id: roas_2vlan
+mission_title: "Router-on-a-Stick: 2 VLAN (10 & 20)"
+description: "Ripristina il routing inter-VLAN tra HOST-VLAN10 (192.168.10.0/24) e HOST-VLAN20 (192.168.20.0/24): su RTR-EDGE-01 manca la subinterface GigabitEthernet0/0.20."
+osi_layer: "Layer 2/3 (VLAN & Inter-VLAN Routing)"
+
+nodes:
+  - label: SW-CORE-01
+    role: switch
+    cml_def: ioll2-xe
+    x: -140
+    y: 0
+    ideal_config:
+      - "hostname SW-CORE-01"
+      - "vlan 10"
+      - " name HR_VLAN10"
+      - "vlan 20"
+      - " name DEV_VLAN20"
+      - "interface Ethernet0/0"
+      - " switchport trunk encapsulation dot1q"
+      - " switchport mode trunk"
+      - " no shutdown"
+      - "interface Ethernet0/1"
+      - " switchport mode access"
+      - " switchport access vlan 10"
+      - " no shutdown"
+      - "interface Ethernet0/2"
+      - " switchport mode access"
+      - " switchport access vlan 20"
+      - " no shutdown"
+    faulty_config:
+      - "hostname SW-CORE-01"
+      - "vlan 10"
+      - " name HR_VLAN10"
+      - "vlan 20"
+      - " name DEV_VLAN20"
+      - "interface Ethernet0/0"
+      - " switchport trunk encapsulation dot1q"
+      - " switchport mode trunk"
+      - " no shutdown"
+      - "interface Ethernet0/1"
+      - " switchport mode access"
+      - " switchport access vlan 10"
+      - " no shutdown"
+      - "interface Ethernet0/2"
+      - " switchport mode access"
+      - " switchport access vlan 20"
+      - " no shutdown"
+
+  - label: RTR-EDGE-01
+    role: router
+    cml_def: iol-xe
+    x: 160
+    y: 0
+    ideal_config:
+      - "hostname RTR-EDGE-01"
+      - "interface Ethernet0/0"
+      - " no shutdown"
+      - "interface Ethernet0/0.10"
+      - " encapsulation dot1Q 10"
+      - " ip address 192.168.10.1 255.255.255.0"
+      - "interface Ethernet0/0.20"
+      - " encapsulation dot1Q 20"
+      - " ip address 192.168.20.1 255.255.255.0"
+    faulty_config:
+      - "hostname RTR-EDGE-01"
+      - "interface Ethernet0/0"
+      - " no shutdown"
+      - "interface Ethernet0/0.10"
+      - " encapsulation dot1Q 10"
+      - " ip address 192.168.10.1 255.255.255.0"
+
+  - label: HOST-VLAN10
+    role: host
+    cml_def: alpine
+    x: -240
+    y: 160
+    ideal_config: []
+    faulty_config: []
+
+  - label: HOST-VLAN20
+    role: host
+    cml_def: alpine
+    x: -40
+    y: 160
+    ideal_config: []
+    faulty_config: []
+
+links:
+  - src_node: SW-CORE-01
+    dst_node: RTR-EDGE-01
+  - src_node: SW-CORE-01
+    dst_node: HOST-VLAN10
+  - src_node: SW-CORE-01
+    dst_node: HOST-VLAN20
+
+rules:
+  - id: rtr_subif_20_encap
+    iface: Ethernet0/0.20
+    child_regex: 'encapsulation\s+dot1[qQ]\s+20'
+    label: "Subinterface E0/0.20 con encapsulation dot1Q 20"
+    fix_cmd: "interface Ethernet0/0.20 -> encapsulation dot1Q 20"
+  - id: rtr_subif_20_ip
+    iface: Ethernet0/0.20
+    child_regex: 'ip\s+address\s+192\.168\.20\.1\s+255\.255\.255\.0'
+    label: "Gateway VLAN 20 configurato (192.168.20.1/24)"
+    fix_cmd: "interface Ethernet0/0.20 -> ip address 192.168.20.1 255.255.255.0"

@@ -8,6 +8,8 @@ import { WiresharkInspector } from './components/WiresharkInspector';
 import { BadgeShowcase } from './components/BadgeShowcase';
 import { AvatarCustomizerModal } from './components/AvatarCustomizerModal';
 import { RpgSkillModal } from './components/RpgSkillModal';
+import { InfraMonitorBadge } from './components/InfraMonitorBadge';
+import { infraBridge } from './utils/infraBridge';
 import { AnimatePresence, motion } from 'framer-motion';
 import { sound } from './utils/audio';
 
@@ -246,6 +248,9 @@ export function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-0 sm:p-4 font-sans">
       <div className="w-full max-w-5xl">
+        <div className="flex justify-end mb-2 px-2 sm:px-0">
+          <InfraMonitorBadge />
+        </div>
         <AnimatePresence mode="wait">
           {screen === 'office' && (
             <motion.div
@@ -259,7 +264,10 @@ export function App() {
                 avatar={avatar}
                 stats={stats}
                 currentRoom={currentRoom}
-                onRoomChange={(r) => setCurrentRoom(r)}
+                onRoomChange={(r) => {
+                  setCurrentRoom(r);
+                  void infraBridge.syncRoomLab(r);
+                }}
                 level1Done={level1Done}
                 level2Done={level2Done}
                 level3Done={level3Done}

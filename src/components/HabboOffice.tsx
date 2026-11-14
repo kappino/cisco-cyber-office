@@ -1,19 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { sound } from '../utils/audio';
+import { infraBridge } from '../utils/infraBridge';
 import { GameScreen, AvatarConfig, PlayerStats, RoomId } from '../types/game';
 import { PhaserGameContainer } from './PhaserGameContainer';
+import { NpcDialogueBox } from './NpcDialogueBox';
 import { InteractiveSpotData, TimePhase } from '../game/EventBus';
 import {
   DialogueChoice,
   DialogueNode,
   buildNpcDialogue,
-  getPortraitSrc
 } from '../data/fuoriReteDialogues';
 import { 
   Trophy, 
   Volume2, 
   VolumeX, 
-  X,
   Compass,
   RotateCcw,
   User,
@@ -100,6 +100,58 @@ export const HabboOffice: React.FC<Props> = ({
     setTimePhase((prev) => (prev === 'morning' ? 'sunset' : prev === 'sunset' ? 'night' : 'morning'));
   };
 
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const refreshNpcGreeting = (speaker: 'rosaria' | 'marco' | 'ciro' | 'secbot') => {
+    void infraBridge
+      .askNpc(
+        speaker,
+        `Saluta brevemente ${avatar.name} e fai il punto sulla rete (Progresso: Rack=${level1Done}, CLI=${level2Done}, Umbrella=${level3Done}, Wireshark=${level4Done}).`
+      )
+      .then((res) => {
+        if (res.source === 'live_ai' && res.reply) {
+          setDialogue((prev) =>
+            prev && prev.speaker === speaker ? { ...prev, text: `[AI LIVE] ${res.reply}` } : prev
+          );
+        }
+      });
+  };
+
+  useEffect(() => {
+    if (completedCount === 0) {
+      refreshNpcGreeting('rosaria');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const askNpcQuick = async (question: string) => {
+    if (!dialogue || !question.trim() || aiLoading) return;
+    sound.playClick();
+    setAiLoading(true);
+    const contextPrompt = `${question.trim()} (Progresso missioni: Rack=${level1Done}, CLI=${level2Done}, Umbrella=${level3Done}, Wireshark=${level4Done})`;
+    const res = await infraBridge.askNpc(dialogue.speaker, contextPrompt);
+    setAiLoading(false);
+    if (res.reply) {
+      setDialogue((prev) =>
+        prev
+          ? {
+              ...prev,
+              text: `[${res.source === 'live_ai' ? 'AI LIVE' : 'SIM'}] ${res.reply}`,
+            }
+          : prev
+      );
+    }
+  };
+
+  const handleAskNpcAi = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const question = aiPrompt.trim();
+    if (!question) return;
+    setAiPrompt('');
+    await askNpcQuick(question);
+  };
+
   const handleDialogueChoice = (choice: DialogueChoice) => {
     sound.playClick();
     sound.startBgm();
@@ -166,17 +218,25 @@ export const HabboOffice: React.FC<Props> = ({
       if (spot.screen) {
         onNavigate(spot.screen as GameScreen);
       } else if (spot.id === 'rosaria') {
+        setActiveSpot(null);
         setDialogue(
           buildNpcDialogue('rosaria', avatar.name, { level1Done, level2Done, level3Done, level4Done })
         );
+        refreshNpcGreeting('rosaria');
       } else if (spot.id === 'ciro') {
+        setActiveSpot(null);
         setDialogue(
           buildNpcDialogue('ciro', avatar.name, { level1Done, level2Done, level3Done, level4Done })
         );
+        refreshNpcGreeting('ciro');
       } else if (spot.id === 'marco' || spot.isNpc) {
+        setActiveSpot(null);
         handleNpcClick();
+        refreshNpcGreeting('marco');
       } else if (spot.isBot) {
+        setActiveSpot(null);
         handleSecBotClick();
+        refreshNpcGreeting('secbot');
       } else if (spot.id === 'firepower') {
         setDialogue({
           speaker: 'secbot',
@@ -321,10 +381,20 @@ export const HabboOffice: React.FC<Props> = ({
         </div>
       </header>
 
-      <div className="studio-heading">
-        <div><span className="studio-eyebrow">HACK THE ROUTE · NAPOLI</span><h1>Fuori Rete<span>.</span></h1>
-        <p>Un ufficio sul Golfo. Una rete da rimettere in gioco.</p></div>
-        <div className="studio-status"><span /> {completedCount === 4 ? 'Rete ripristinata' : `${4 - completedCount} interventi in attesa`}<small>PARTENOPE · NETWORK STUDIO</small></div>
+      <div className="flex items-center justify-between px-4 py-2 border-b border-slate-700/60 bg-gradient-to-r from-slate-900 via-[#101c2e] to-slate-900 text-xs">
+        <div className="flex items-center gap-2.5">
+          <span className="px-2 py-0.5 rounded bg-cisco-blue/15 border border-cisco-blue/40 text-cisco-blue font-mono font-bold text-[10px] tracking-wider uppercase">
+            Hack The Route
+          </span>
+          <span className="font-black text-slate-100 text-sm tracking-tight">
+            Fuori Rete<span className="text-amber-400">.</span>
+          </span>
+          <span className="text-slate-400 hidden sm:inline text-[11px]">Napoli · Network Studio</span>
+        </div>
+        <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 font-semibold text-[11px]">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+          {completedCount === 4 ? 'Rete ripristinata' : `${4 - completedCount} interventi in attesa`}
+        </div>
       </div>
       {/* Main Isometric Room Container */}
       <main className="flex flex-col items-center justify-start p-2 sm:p-3 bg-[#0d121f]">
@@ -349,7 +419,7 @@ export const HabboOffice: React.FC<Props> = ({
         </div>
 
         {/* The Live Interactive Isometric Phaser 3 Canvas */}
-        <div className="w-full max-w-4xl relative">
+        <div className="w-full max-w-4xl max-h-[38vh] overflow-hidden flex items-center justify-center relative">
           <PhaserGameContainer
             avatar={avatar}
             stats={stats}
@@ -665,63 +735,16 @@ export const HabboOffice: React.FC<Props> = ({
             </button>
           </div>
         ) : dialogue ? (
-          /* NPC DIALOGUE VIEW WITH PORTRAIT & CHOICES */
-          <div className="bg-slate-900 border-2 border-cisco-blue rounded-xl p-3 sm:p-4 shadow-2xl animate-fade-in flex flex-col gap-3">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <div className="flex items-start gap-3 flex-1 min-w-0">
-                <img
-                  src={getPortraitSrc(dialogue.speaker, dialogue.mood)}
-                  alt={`${dialogue.speakerName} (${dialogue.mood})`}
-                  className="w-16 h-16 rounded-xl border-2 border-cisco-blue bg-slate-950 object-contain shrink-0"
-                  style={{ imageRendering: 'pixelated' }}
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-black text-cisco-blue uppercase tracking-wider">
-                      {dialogue.speakerName} // {dialogue.role}
-                    </span>
-                    <button
-                      onClick={() => { sound.playClick(); setDialogue(null); }}
-                      className="text-slate-400 hover:text-white p-0.5 rounded hover:bg-slate-800 transition"
-                      title="Chiudi messaggio"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <p className="text-xs sm:text-sm text-slate-200 mt-1 leading-relaxed">
-                    {dialogue.text}
-                  </p>
-                </div>
-              </div>
-              {!dialogue.choices && (
-                <button
-                  onClick={() => {
-                    sound.playClick();
-                    sound.startBgm();
-                    setDialogue(null);
-                  }}
-                  className="w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-cisco-blue to-cyan-500 hover:from-cyan-400 hover:to-cisco-blue text-slate-950 font-black text-xs rounded-lg shadow-lg flex items-center justify-center gap-1.5 transition active:scale-95 shrink-0"
-                >
-                  <span>HO CAPITO!</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-            {dialogue.choices && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {dialogue.choices.map((choice, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleDialogueChoice(choice)}
-                    className="text-left px-3 py-2 rounded-lg border border-cisco-blue/50 bg-slate-800/80 hover:bg-sky-950/60 hover:border-cyan-400 text-xs font-bold text-slate-100 transition flex items-center justify-between gap-2"
-                  >
-                    <span>{choice.label}</span>
-                    <ArrowRight className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <NpcDialogueBox
+            dialogue={dialogue}
+            aiPrompt={aiPrompt}
+            aiLoading={aiLoading}
+            onAiPromptChange={setAiPrompt}
+            onAskAiSubmit={handleAskNpcAi}
+            onAskAiQuick={(q) => void askNpcQuick(q)}
+            onSelectChoice={handleDialogueChoice}
+            onClose={() => setDialogue(null)}
+          />
         ) : (
           /* FREE ROAMING STATUS */
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-2.5 text-center text-xs text-slate-400">

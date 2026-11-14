@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { sound } from '../utils/audio';
+import { infraBridge } from '../utils/infraBridge';
 import confetti from 'canvas-confetti';
 import { ArrowLeft, CheckCircle2, ShieldAlert, ShieldCheck, Activity, Globe, Lock, Eye, Zap } from 'lucide-react';
 
@@ -41,6 +42,7 @@ export const UmbrellaSocGame: React.FC<Props> = ({ onBack, onComplete, isComplet
   const handleEnforceDnsBlock = () => {
     sound.playCableSnap();
     setDnsBlocked(true);
+    void infraBridge.blockDomain('c2-payload-drop.ru', 'block');
     checkSuccess(true, endpointIsolated);
   };
 

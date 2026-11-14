@@ -57,7 +57,7 @@ export const ROOM_CONFIGS: Record<string, RoomConfig> = {
   office: {
     id: 'office',
     name: 'UFFICIO OPERATIVO (1F)',
-    subtitle: 'PARTENOPE // STUDIO RETI SUL GOLFO',
+    subtitle: 'CISCO // NETWORK STUDIO',
     floorTexture: 'tile_parquet',
     hasWindow: true,
     windowGridY: 2.5,
