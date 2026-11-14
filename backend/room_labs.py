@@ -54,7 +54,9 @@ def load_rooms() -> Dict[str, Dict[str, Any]]:
     for f in sorted(ROOMS_DIR.glob("*.yaml")):
         text = f.read_text(encoding="utf-8")
         spec = yaml.safe_load(text)
-        spec["hash"] = hashlib.sha1(text.encode()).hexdigest()[:12]
+        cml_part = {"nodes": [{k: n.get(k) for k in ("label", "cml_def", "config", "min_interfaces")}
+                              for n in spec["nodes"]], "links": spec["links"]}
+        spec["hash"] = hashlib.sha1(yaml.safe_dump(cml_part, sort_keys=True).encode()).hexdigest()[:12]
         if len(spec.get("nodes", [])) > 5:
             raise ValueError(f"{f.name}: piu' di 5 nodi, oltre la licenza CML")
         rooms[spec["room_id"]] = spec
@@ -176,6 +178,12 @@ def _linux_login(chan: paramiko.Channel, out: str) -> str:
 
 def run_console_command(lab_title: str, node_label: str, cml_def: str, command: str, timeout: float = 10) -> str:
     """Esegue un comando sulla console vera e restituisce l'output completo (fino al prompt)."""
+    return run_console_commands(lab_title, node_label, cml_def, [command], timeout)[0]
+
+
+def run_console_commands(lab_title: str, node_label: str, cml_def: str, commands: List[str],
+                         timeout: float = 10) -> List[str]:
+    """Piu' comandi nella stessa sessione console (una sola connessione)."""
     ssh, chan, _ = open_console(lab_title, node_label)
     try:
         linux = cml_def in LINUX_DEFS
@@ -189,17 +197,20 @@ def run_console_command(lab_title: str, node_label: str, cml_def: str, command: 
             _read_until(chan, lambda s: s.rstrip().endswith("#"), 3)
             chan.send("terminal length 0\r")
             _read_until(chan, lambda s: bool(IOS_PROMPT.search(s.rstrip().splitlines()[-1] if s.strip() else "")), 3)
-        chan.send(command + "\r")
         prompt = LINUX_PROMPT if linux else IOS_PROMPT
 
         def done(s: str) -> bool:
             lines = s.rstrip("\r\n ").splitlines()
             return len(lines) > 1 and bool(prompt.search(lines[-1]))
-        out = _read_until(chan, done, timeout)
-        lines = out.replace("\r", "").splitlines()
-        if lines and command.strip() in lines[0]:
-            lines = lines[1:]
-        return "\n".join(lines).rstrip()
+        results = []
+        for command in commands:
+            chan.send(command + "\r")
+            out = _read_until(chan, done, timeout)
+            lines = out.replace("\r", "").splitlines()
+            if lines and command.strip() in lines[0]:
+                lines = lines[1:]
+            results.append("\n".join(lines).rstrip())
+        return results
     finally:
         ssh.close()
 
@@ -459,7 +470,7 @@ class RoomManager:
         status = dict(self.status[room_id])
         if not lid:
             return {"room_id": room_id, "lab_title": spec["lab_title"], "lab_id": None, "status": status,
-                    "devices": [], "links": [], "error": "lab non ancora creato"}
+                    "racks": spec.get("racks", []), "devices": [], "links": [], "error": "lab non ancora creato"}
         nodes = await self._nodes(lid)
         if self.status[room_id]["phase"] == "ready" and any(n["state"] in OFF_STATES for n in nodes):
             # qualcun altro (un altro backend, l'interfaccia di CML) ha spento il lab della stanza
@@ -502,6 +513,7 @@ class RoomManager:
                 })
             dev_ifaces.sort(key=lambda d: (d["slot"] is None, d["slot"] or 0))
             devices.append({
+                "rack": ns.get("rack"), "jack": ns.get("jack"),
                 "label": n["label"], "cml_def": n["node_definition"], "state": n["state"],
                 "kind": ns.get("kind") or ("switch" if "l2" in n["node_definition"] else
                                            "router" if n["node_definition"] in IOS_DEFS else "pc"),
@@ -511,7 +523,7 @@ class RoomManager:
                 "interfaces": dev_ifaces,
             })
         return {"room_id": room_id, "lab_title": spec["lab_title"], "lab_id": lid, "status": status,
-                "devices": devices, "links": out_links}
+                "racks": spec.get("racks", []), "devices": devices, "links": out_links}
 
     # ---- cavi -----------------------------------------------------------
     async def cable(self, room_id: str, action: str, node: str, iface: str,
@@ -537,7 +549,28 @@ class RoomManager:
         links = await self.api.get(f"/labs/{lid}/links?data=true")
         link = next((l for l in links if src in (l["interface_a"], l["interface_b"])), None)
 
-        if action in ("unplug", "plug"):
+        if action == "disconnect":  # il cavo viene tolto: il collegamento sparisce dal lab
+            if not link:
+                raise ValueError(f"nessun cavo collegato a {node} {iface}")
+            await self.api.put(f"/labs/{lid}/links/{link['id']}/state/stop")
+            r = await self.api.req("DELETE", f"/labs/{lid}/links/{link['id']}")
+            r.raise_for_status()
+        elif action == "connect":  # nuovo cavo tra due porte libere
+            if not (to_node and to_iface):
+                raise ValueError("per collegare servono to_node e to_iface")
+            if link:
+                raise ValueError(f"{node} {iface} ha gia' un cavo")
+            dst = iface_id(to_node, to_iface)
+            if dst == src:
+                raise ValueError("non si puo' collegare una porta a se stessa")
+            if any(dst in (l["interface_a"], l["interface_b"]) for l in links):
+                raise ValueError(f"{to_node} {to_iface} e' gia' occupata")
+            new_id = await self._create_link(lid, src, dst)
+            if not new_id:
+                raise RuntimeError(f"CML non ha accettato il cavo {node} {iface} - {to_node} {to_iface}")
+            if any(n["state"] not in OFF_STATES for n in nodes):
+                await self.api.put(f"/labs/{lid}/links/{new_id}/state/start")
+        elif action in ("unplug", "plug"):
             if not link:
                 raise ValueError(f"nessun cavo collegato a {node} {iface}")
             r = await self.api.put(f"/labs/{lid}/links/{link['id']}/state/{'stop' if action == 'unplug' else 'start'}")
@@ -577,6 +610,52 @@ class RoomManager:
                 return r.json()["id"]
             await asyncio.sleep(1)
         return None
+
+    # ---- LED delle porte, letti dagli apparati -----------------------------
+    _ports_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+
+    async def ports(self, room_id: str) -> Dict[str, Any]:
+        """Stato reale delle porte: switch `show interfaces status` + porte bloccate da STP,
+        router `show ip interface brief`. LED: green / amber / off. Cache di 4 s."""
+        hit = self._ports_cache.get(room_id)
+        if hit and time.time() - hit[0] < 4:
+            return hit[1]
+        spec = room_spec(room_id)
+        if self.status[room_id]["phase"] != "ready":
+            return {"room_id": room_id, "ready": False, "ports": {}}
+
+        def read(n: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+            res: Dict[str, Any] = {}
+            try:
+                if n.get("kind") == "switch":
+                    st, bl = run_console_commands(spec["lab_title"], n["label"], n["cml_def"],
+                                                  ["show interfaces status", "show spanning-tree blockedports"])
+                    blocked = {m.group(1) for m in re.finditer(r"^VLAN\d+\s+([\w/,\- ]+)$", bl, re.M)}
+                    blocked = {p.strip() for b in blocked for p in b.split(",") if p.strip()}
+                    for m in re.finditer(r"^((?:Et|Po)\S+)\s.*?\s(connected|notconnect|disabled|err-disabled|inactive)\s+(\S+)",
+                                         st, re.M):
+                        port, state, vlan = m.groups()
+                        full = port.replace("Et", "Ethernet", 1).replace("Po", "Port-channel", 1)
+                        led = "green" if state == "connected" else "amber" if state == "err-disabled" else "off"
+                        if port in blocked and state == "connected":
+                            led, state = "amber", "STP blocking"
+                        res[full] = {"led": led, "status": state, "vlan": vlan}
+                elif n.get("kind") == "router":
+                    (st,) = run_console_commands(spec["lab_title"], n["label"], n["cml_def"], ["show ip interface brief"])
+                    for m in re.finditer(r"^(Ethernet\d+/\d+)\s+(\S+)\s+\S+\s+\S+\s+(administratively down|up|down)\s+(up|down)",
+                                         st, re.M):
+                        iface, ip, status, proto = m.groups()
+                        led = "green" if status == "up" and proto == "up" else "off"
+                        res[iface] = {"led": led, "status": f"{status}/{proto}", "vlan": ip}
+            except Exception as exc:  # porta senza dati: il gioco usa lo stato del cavo
+                res["_error"] = str(exc)
+            return n["label"], res
+
+        nodes = [n for n in spec["nodes"] if n.get("kind") in ("switch", "router") and n["cml_def"] in IOS_DEFS]
+        pairs = await asyncio.gather(*[asyncio.to_thread(read, n) for n in nodes])
+        out = {"room_id": room_id, "ready": True, "ports": dict(pairs), "read_at": time.time()}
+        self._ports_cache[room_id] = (time.time(), out)
+        return out
 
     # ---- comandi singoli (vecchio terminale) ----------------------------
     async def exec_command(self, node_label: str, command: str, room_id: Optional[str] = None) -> str:

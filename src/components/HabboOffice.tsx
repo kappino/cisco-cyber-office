@@ -4,6 +4,8 @@ import { infraBridge } from '../utils/infraBridge';
 import { GameScreen, AvatarConfig, PlayerStats, RoomId } from '../types/game';
 import { PhaserGameContainer } from './PhaserGameContainer';
 import { CmlDevicePanel } from './CmlDevicePanel';
+import { RackView } from './RackView';
+import { EventBus } from '../game/EventBus';
 import { useRoomNetwork } from '../utils/useRoomNetwork';
 import { NpcDialogueBox } from './NpcDialogueBox';
 import { InteractiveSpotData, TimePhase } from '../game/EventBus';
@@ -73,6 +75,15 @@ export const HabboOffice: React.FC<Props> = ({
   // Rete della stanza: dispositivi 1:1 con il lab CML, console e cavi veri
   const { topology: roomNet, publish: publishRoomNet } = useRoomNetwork(currentRoom);
   const [deviceNode, setDeviceNode] = useState<string | null>(null);
+  const [rackOpen, setRackOpen] = useState<string | null>(null);
+  // con un terminale o l'armadio aperti la tastiera scrive, non muove il personaggio
+  useEffect(() => {
+    EventBus.emit('SET_INPUT_ENABLED', !(deviceNode || rackOpen));
+  }, [deviceNode, rackOpen]);
+  useEffect(() => {
+    setDeviceNode(null);
+    setRackOpen(null);
+  }, [currentRoom]);
   const [targetSpotId, setTargetSpotId] = useState<string | null>(null);
   const [coffeeBoostTrigger, setCoffeeBoostTrigger] = useState<number>(0);
   const [timePhase, setTimePhase] = useState<TimePhase>('morning');
@@ -218,6 +229,13 @@ export const HabboOffice: React.FC<Props> = ({
       sound.playClick();
       setActiveSpot(null);
       setDeviceNode(spot.cmlNode);
+      return;
+    }
+    if (spot.cmlRack || spot.id === 'terminal') {
+      // la workstation admin non e' un nodo: ci si collega agli apparati con il cavo console dell'armadio
+      sound.playClick();
+      setActiveSpot(null);
+      setRackOpen(spot.cmlRack ?? roomNet?.racks?.[0]?.id ?? 'A');
       return;
     }
     if (spot.isElevator) {
@@ -471,8 +489,16 @@ export const HabboOffice: React.FC<Props> = ({
           roomId={currentRoom}
           node={deviceNode}
           topology={roomNet}
-          onTopology={publishRoomNet}
           onClose={() => setDeviceNode(null)}
+        />
+      )}
+      {rackOpen && (
+        <RackView
+          roomId={currentRoom}
+          rackId={rackOpen}
+          topology={roomNet}
+          onTopology={publishRoomNet}
+          onClose={() => setRackOpen(null)}
         />
       )}
 

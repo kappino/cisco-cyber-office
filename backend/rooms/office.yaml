@@ -5,12 +5,15 @@ room_id: office
 lab_title: FuoriRete_Room_Office
 description: "Piano 1: VLAN per reparto, trunk 802.1Q, router-on-a-stick, DHCP"
 
+racks:
+  - { id: A, label: "Armadio di rete del piano", gx: 1.0, gy: 1.0 }
+
 nodes:
   - label: RTR-UFFICIO
     cml_def: iol-xe
     kind: router
     display: "Router del piano"
-    game: { gx: 1.0, gy: 1.0 }
+    rack: A
     cml_xy: [0, -200]
     config: |
       hostname RTR-UFFICIO
@@ -53,7 +56,7 @@ nodes:
     cml_def: ioll2-xe
     kind: switch
     display: "Switch d'accesso del piano"
-    game: { gx: 1.0, gy: 2.0 }
+    rack: A
     cml_xy: [0, 0]
     min_interfaces: 8
     config: |
@@ -127,6 +130,7 @@ nodes:
     kind: pc
     display: "PC di Marta (Marketing)"
     game: { gx: 4.0, gy: 1.0 }
+    jack: { rack: A, label: MKT-01 }
     cml_xy: [-200, 200]
     config: |
       hostname PC-MARKETING
@@ -138,6 +142,7 @@ nodes:
     kind: pc
     display: "PC di Salvatore (Contabilità)"
     game: { gx: 5.0, gy: 1.0 }
+    jack: { rack: A, label: AMM-01 }
     cml_xy: [0, 200]
     config: |
       hostname PC-CONTABILITA
@@ -149,6 +154,7 @@ nodes:
     kind: printer
     display: "Stampante di rete del piano"
     game: { gx: 2.0, gy: 6.0 }
+    jack: { rack: A, label: SRV-01 }
     cml_xy: [200, 200]
     config: |
       hostname STAMPANTE

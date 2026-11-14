@@ -122,6 +122,14 @@ async def room_topology(room_id: str) -> Dict[str, Any]:
     return await room_manager.topology(room_id)
 
 
+@app.get("/api/room/{room_id}/ports")
+async def room_ports(room_id: str) -> Dict[str, Any]:
+    """LED delle porte letti dagli apparati veri (switch e router della stanza)."""
+    if room_id not in ROOMS:
+        raise HTTPException(404, "stanza sconosciuta")
+    return await room_manager.ports(room_id)
+
+
 @app.post("/api/room/{room_id}/cable")
 async def room_cable(room_id: str, req: CableRequest) -> Dict[str, Any]:
     """Stacca, ricollega o sposta un cavo: la modifica avviene sul lab CML della stanza."""

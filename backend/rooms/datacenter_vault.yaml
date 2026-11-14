@@ -6,12 +6,16 @@ room_id: datacenter_vault
 lab_title: FuoriRete_Room_Datacenter
 description: "Datacenter: due switch di rack con trunk 802.1Q, VLAN server e backup, router-on-a-stick"
 
+racks:
+  - { id: A, label: "Rack A (rete e gestionale)", gx: 1.0, gy: 1.0 }
+  - { id: B, label: "Rack B (backup)", gx: 4.0, gy: 1.0 }
+
 nodes:
   - label: RTR-DC
     cml_def: iol-xe
     kind: router
     display: "Router del datacenter"
-    game: { gx: 1.0, gy: 1.0 }
+    rack: A
     cml_xy: [0, -220]
     config: |
       hostname RTR-DC
@@ -40,7 +44,7 @@ nodes:
     cml_def: ioll2-xe
     kind: switch
     display: "Switch di rack A"
-    game: { gx: 4.0, gy: 1.0 }
+    rack: A
     cml_xy: [-150, -60]
     min_interfaces: 8
     config: |
@@ -103,7 +107,7 @@ nodes:
     cml_def: ioll2-xe
     kind: switch
     display: "Switch di rack B"
-    game: { gx: 5.0, gy: 6.0 }
+    rack: B
     cml_xy: [150, -60]
     min_interfaces: 8
     config: |
@@ -164,7 +168,7 @@ nodes:
     cml_def: alpine
     kind: server
     display: "Server del gestionale"
-    game: { gx: 1.0, gy: 4.0 }
+    rack: A
     cml_xy: [-150, 120]
     config: |
       hostname SRV-GESTIONALE
@@ -177,7 +181,7 @@ nodes:
     cml_def: alpine
     kind: server
     display: "Server di backup"
-    game: { gx: 6.0, gy: 6.0 }
+    rack: B
     cml_xy: [150, 120]
     config: |
       hostname SRV-BACKUP

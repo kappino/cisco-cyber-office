@@ -79,6 +79,8 @@ export interface RoomInterface {
 }
 
 export interface RoomTopologyDevice {
+  rack: string | null;
+  jack: { rack: string; label: string } | null;
   label: string;
   cml_def: string;
   state: string;
@@ -94,13 +96,26 @@ export interface RoomTopology {
   lab_title: string;
   lab_id: string | null;
   status: RoomStatus;
+  racks: { id: string; label: string; gx: number; gy: number }[];
   devices: RoomTopologyDevice[];
   links: { id: string; state: string; a: { node: string; iface: string }; b: { node: string; iface: string } }[];
   error?: string;
 }
 
+export interface PortLed {
+  led: 'green' | 'amber' | 'off';
+  status: string;
+  vlan: string;
+}
+
+export interface RoomPorts {
+  room_id: string;
+  ready: boolean;
+  ports: Record<string, Record<string, PortLed>>;
+}
+
 export interface CableAction {
-  action: 'unplug' | 'plug' | 'move';
+  action: 'connect' | 'disconnect' | 'move' | 'unplug' | 'plug';
   node: string;
   iface: string;
   to_node?: string;
@@ -417,6 +432,15 @@ class InfraBridge {
       return res.ok ? { ok: true, topology: data as RoomTopology } : { ok: false, error: data?.detail ?? 'errore' };
     } catch (e) {
       return { ok: false, error: String(e) };
+    }
+  }
+
+  async getRoomPorts(roomId: string): Promise<RoomPorts | null> {
+    try {
+      const res = await fetch(`/api/room/${roomId}/ports`);
+      return res.ok ? ((await res.json()) as RoomPorts) : null;
+    } catch {
+      return null;
     }
   }
 

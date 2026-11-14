@@ -262,11 +262,11 @@ export const ROOM_CONFIGS: Record<string, RoomConfig> = {
     spots: [
       {
         id: 'terminal',
-        name: 'Workstation Admin CLI',
+        name: 'Postazione del tecnico',
         tag: 'LAYER 3 ROUTING',
-        desc: 'Console Cisco IOS: risolvi il loop e assegna la VLAN 20',
+        desc: 'Cavo console verso gli apparati dell\'armadio',
         icon: '💻',
-        actionText: 'ACCEDI AL TERMINALE IOS',
+        actionText: 'APRI ARMADIO E CONSOLE',
         tileX: 3.0,
         tileY: 1.0,
         interactX: 3.0,

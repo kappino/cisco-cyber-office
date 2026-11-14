@@ -6,12 +6,15 @@ room_id: corridor
 lab_title: FuoriRete_Room_Corridor
 description: "Armadio di rete: EtherChannel LACP, Rapid-PVST con link ridondante bloccato, trunk, DHCP"
 
+racks:
+  - { id: A, label: "Armadio di rete di sede", gx: 1.0, gy: 1.0 }
+
 nodes:
   - label: RTR-CORE
     cml_def: iol-xe
     kind: router
     display: "Router di sede"
-    game: { gx: 1.0, gy: 1.0 }
+    rack: A
     cml_xy: [0, -250]
     config: |
       hostname RTR-CORE
@@ -44,7 +47,7 @@ nodes:
     cml_def: ioll2-xe
     kind: switch
     display: "Switch di distribuzione"
-    game: { gx: 2.0, gy: 1.0 }
+    rack: A
     cml_xy: [-150, -80]
     min_interfaces: 8
     config: |
@@ -113,7 +116,7 @@ nodes:
     cml_def: ioll2-xe
     kind: switch
     display: "Switch d'accesso helpdesk"
-    game: { gx: 1.0, gy: 2.0 }
+    rack: A
     cml_xy: [150, -80]
     min_interfaces: 8
     config: |
@@ -182,6 +185,7 @@ nodes:
     kind: pc
     display: "PC di Ciro (Helpdesk)"
     game: { gx: 5.0, gy: 1.0 }
+    jack: { rack: A, label: HD-01 }
     cml_xy: [150, 150]
     config: |
       hostname PC-HELPDESK
@@ -192,7 +196,7 @@ nodes:
     cml_def: alpine
     kind: server
     display: "File server di sede"
-    game: { gx: 5.0, gy: 6.0 }
+    rack: A
     cml_xy: [-150, 150]
     config: |
       hostname SRV-FILE

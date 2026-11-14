@@ -59,7 +59,7 @@ class RoomSyncRequest(BaseModel):
 
 class CableRequest(BaseModel):
     """Operazione su un cavo del lab della stanza."""
-    action: str = Field(..., description="'unplug' | 'plug' | 'move'")
+    action: str = Field(..., description="'connect' | 'disconnect' | 'move' | 'unplug' | 'plug'")
     node: str = Field(..., description="Nodo CML a un capo del cavo")
     iface: str = Field(..., description="Interfaccia di quel nodo (es. 'Ethernet0/1', 'eth0')")
     to_node: Optional[str] = Field(None, description="Solo 'move': nodo di destinazione")

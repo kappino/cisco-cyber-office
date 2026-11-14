@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { EventBus, RoomDevice } from '../game/EventBus';
+import { EventBus, RoomDevice, RoomRack } from '../game/EventBus';
 import { infraBridge, RoomTopology } from './infraBridge';
 
 /**
@@ -14,19 +14,26 @@ export function useRoomNetwork(roomId: string) {
 
   const publish = useCallback((t: RoomTopology) => {
     setTopology(t);
-    const devices: RoomDevice[] = t.devices.map((d) => {
+    const linkUp = (d: RoomTopology['devices'][number]) => {
       const wired = d.interfaces.filter((i) => i.connected);
+      return { total: wired.length, up: wired.filter((i) => i.link_state === 'STARTED').length };
+    };
+    // postazioni (PC, stampante): hanno una posizione nella stanza
+    const devices: RoomDevice[] = t.devices.filter((d) => d.game).map((d) => {
+      const l = linkUp(d);
+      return { label: d.label, kind: d.kind, display: d.display, state: d.state, game: d.game, linksTotal: l.total, linksUp: l.up };
+    });
+    // armadi: raccolgono gli apparati montati a rack
+    const racks: RoomRack[] = (t.racks || []).map((r) => {
+      const inRack = t.devices.filter((d) => d.rack === r.id);
       return {
-        label: d.label,
-        kind: d.kind,
-        display: d.display,
-        state: d.state,
-        game: d.game,
-        linksTotal: wired.length,
-        linksUp: wired.filter((i) => i.link_state === 'STARTED').length,
+        id: r.id, label: r.label, gx: r.gx, gy: r.gy,
+        devices: inRack.map((d) => d.label),
+        booted: inRack.filter((d) => d.state === 'BOOTED').length,
+        alert: inRack.some((d) => { const l = linkUp(d); return l.up < l.total; }),
       };
     });
-    EventBus.emit('SET_ROOM_DEVICES', { roomId: t.room_id, devices });
+    EventBus.emit('SET_ROOM_DEVICES', { roomId: t.room_id, racks, devices });
   }, []);
 
   const refresh = useCallback(async () => {
