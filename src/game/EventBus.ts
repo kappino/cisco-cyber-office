@@ -18,6 +18,19 @@ export interface InteractiveSpotData {
   isBot?: boolean;
   screen?: string;
   completed?: boolean;
+  /** Etichetta del nodo CML corrispondente (dispositivi generati dal lab della stanza). */
+  cmlNode?: string;
+}
+
+/** Dispositivo della stanza, 1:1 con un nodo del lab CML. */
+export interface RoomDevice {
+  label: string;
+  kind: 'router' | 'switch' | 'pc' | 'server' | 'printer' | string;
+  display: string;
+  state: string;
+  game?: { gx: number; gy: number } | null;
+  linksUp: number;
+  linksTotal: number;
 }
 
 export type TimePhase = 'morning' | 'sunset' | 'night';
@@ -37,6 +50,7 @@ export interface GameEvents {
   'CHANGE_ROOM': (roomId: string) => void;
   'TRIGGER_CELEBRATION': () => void;
   'TRIGGER_COFFEE_BOOST': () => void;
+  'SET_ROOM_DEVICES': (payload: { roomId: string; devices: RoomDevice[] }) => void;
 }
 
 export const EventBus = new Phaser.Events.EventEmitter();

@@ -120,7 +120,7 @@ export const CrtTerminalGame: React.FC<Props> = ({ onBack, onComplete, isComplet
       return;
     }
 
-    void infraBridge.execCommand('SW-CORE-01', cmd).then((res) => {
+    void infraBridge.execCommand('SW-ACC', cmd).then((res) => {
       if (res.source === 'live_cml') {
         setHistory(prev => [...prev, { type: 'system', text: res.output }]);
       }

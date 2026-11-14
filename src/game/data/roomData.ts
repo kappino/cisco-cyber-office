@@ -213,16 +213,6 @@ export const ROOM_CONFIGS: Record<string, RoomConfig> = {
     ],
     furniture: [
       {
-        id: 'rack_sw1',
-        gridX: 1.0,
-        gridY: 1.0,
-        textureKey: 'furniture_rack_sw1_sheet',
-        animKey: 'rack-sw1-blink',
-        originX: 0.5,
-        originY: 0.85,
-        isSolid: true
-      },
-      {
         id: 'admin_desk',
         gridX: 3.0,
         gridY: 1.0,
@@ -270,19 +260,6 @@ export const ROOM_CONFIGS: Record<string, RoomConfig> = {
       }
     ],
     spots: [
-      {
-        id: 'rack',
-        name: 'Rack 42U Catalyst 9300 (SW1)',
-        tag: 'LAYER 1-2 HARDWARE',
-        desc: 'Cablaggio fisico patch panel e porte Trunk/Access',
-        icon: '🔌',
-        actionText: 'ISPEZIONA RACK SW1',
-        tileX: 1.0,
-        tileY: 1.0,
-        interactX: 1.8,
-        interactY: 2.0,
-        screen: 'rack'
-      },
       {
         id: 'terminal',
         name: 'Workstation Admin CLI',
@@ -387,37 +364,9 @@ export const ROOM_CONFIGS: Record<string, RoomConfig> = {
     ],
     furniture: [
       {
-        id: 'server_r1',
-        gridX: 1.0,
-        gridY: 1.0,
-        textureKey: 'furniture_server_r1_sheet',
-        animKey: 'server-r1-blink',
-        originX: 0.5,
-        originY: 0.85,
-        isSolid: true
-      },
-      {
         id: 'wireshark_desk',
         gridX: 2.8,
         gridY: 1.0,
-        textureKey: 'furniture_desk',
-        originX: 0.5,
-        originY: 0.85,
-        isSolid: true
-      },
-      {
-        id: 'firepower_wall',
-        gridX: 4.5,
-        gridY: 1.0,
-        textureKey: 'furniture_desk',
-        originX: 0.5,
-        originY: 0.85,
-        isSolid: true
-      },
-      {
-        id: 'san_storage',
-        gridX: 1.0,
-        gridY: 4.8,
         textureKey: 'furniture_desk',
         originX: 0.5,
         originY: 0.85,
@@ -457,30 +406,6 @@ export const ROOM_CONFIGS: Record<string, RoomConfig> = {
         interactX: 2.8,
         interactY: 2.0,
         screen: 'wireshark'
-      },
-      {
-        id: 'firepower',
-        name: 'Cisco Firepower 4100',
-        tag: 'NEXT-GEN FIREWALL',
-        desc: 'Appliance NGFW con IPS/IDS hardware contro minacce zero-day',
-        icon: '🛡️',
-        actionText: 'STATO FIREPOWER NGFW',
-        tileX: 4.5,
-        tileY: 1.0,
-        interactX: 4.5,
-        interactY: 2.0
-      },
-      {
-        id: 'san_storage',
-        name: 'Cisco UCS Storage Vault',
-        tag: 'FIBRE CHANNEL SAN',
-        desc: 'Array di storage criptato con snapshot di backup immutabili',
-        icon: '💾',
-        actionText: 'VERIFICA VOLUMI SAN',
-        tileX: 1.0,
-        tileY: 4.8,
-        interactX: 2.0,
-        interactY: 4.8
       },
       {
         id: 'marco',

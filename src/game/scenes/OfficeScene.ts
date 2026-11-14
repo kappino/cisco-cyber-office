@@ -1,6 +1,6 @@
 import { HD_DENSITY, hdTextureKeys } from '../utils/hdTextures';
 import Phaser from 'phaser';
-import { EventBus, InteractiveSpotData, TimePhase } from '../EventBus';
+import { EventBus, InteractiveSpotData, RoomDevice, TimePhase } from '../EventBus';
 import {
   gridToScreen,
   screenToGrid,
@@ -45,6 +45,12 @@ export class OfficeScene extends Phaser.Scene {
   private promptText!: Phaser.GameObjects.Text;
   private promptIcon!: Phaser.GameObjects.Text;
   private windowSprite: Phaser.GameObjects.Image | null = null;
+
+  // Dispositivi generati dal lab CML della stanza (1:1 con i nodi)
+  private deviceObjects: Phaser.GameObjects.GameObject[] = [];
+  private deviceSpots: InteractiveSpotData[] = [];
+  private deviceSolid = new Set<string>();
+  private devicesByRoom: Record<string, RoomDevice[]> = {};
 
   constructor() {
     super('OfficeScene');
@@ -102,7 +108,7 @@ export class OfficeScene extends Phaser.Scene {
     const handleNavigateTo = (data: { tileX?: number; tileY?: number; spotId?: string }) => {
       if (data.spotId) {
         let room = ROOM_CONFIGS[this.currentRoomId];
-        let spot = room.spots.find((s) => s.id === data.spotId);
+        let spot = this.spotsOf(room).find((s) => s.id === data.spotId);
 
         // If spot is not in current room, switch to the room containing it
         if (!spot) {
@@ -152,6 +158,12 @@ export class OfficeScene extends Phaser.Scene {
       this.speedMultiplier = 1.6;
     };
 
+    const handleSetRoomDevices = (payload: { roomId: string; devices: RoomDevice[] }) => {
+      this.devicesByRoom[payload.roomId] = payload.devices;
+      if (payload.roomId === this.currentRoomId) this.renderDevices();
+    };
+
+    EventBus.on('SET_ROOM_DEVICES', handleSetRoomDevices);
     EventBus.on('NAVIGATE_TO', handleNavigateTo);
     EventBus.on('CHANGE_ROOM', handleChangeRoom);
     EventBus.on('SET_TIME_PHASE', handleSetTimePhase);
@@ -159,6 +171,7 @@ export class OfficeScene extends Phaser.Scene {
     EventBus.on('TRIGGER_COFFEE_BOOST', handleTriggerCoffeeBoost);
 
     this.events.once('shutdown', () => {
+      EventBus.off('SET_ROOM_DEVICES', handleSetRoomDevices);
       EventBus.off('NAVIGATE_TO', handleNavigateTo);
       EventBus.off('CHANGE_ROOM', handleChangeRoom);
       EventBus.off('SET_TIME_PHASE', handleSetTimePhase);
@@ -377,6 +390,9 @@ export class OfficeScene extends Phaser.Scene {
       this.roomObjects.push(sprite);
     });
 
+    // 4b. Dispositivi di rete: esattamente i nodi del lab CML della stanza
+    this.renderDevices();
+
     // 5. Spawn NPCs with ground shadows
     config.npcs.forEach((npc) => {
       const pos = this.projectPosition(npc.gridX, npc.gridY);
@@ -541,7 +557,7 @@ export class OfficeScene extends Phaser.Scene {
         this.targetWaypoint = null;
         if (finishedWaypoint.spotId) {
           const room = ROOM_CONFIGS[this.currentRoomId];
-          const spot = room.spots.find((s) => s.id === finishedWaypoint.spotId);
+          const spot = this.spotsOf(room).find((s) => s.id === finishedWaypoint.spotId);
           if (spot) {
             this.activeSpot = spot;
             this.showPromptForSpot(spot);
@@ -623,7 +639,7 @@ export class OfficeScene extends Phaser.Scene {
     let nearestSpot: InteractiveSpotData | null = null;
     let minDistance = 1.6;
 
-    for (const spot of room.spots) {
+    for (const spot of this.spotsOf(room)) {
       const d = Math.hypot(
         this.playerGridX - spot.interactX,
         this.playerGridY - spot.interactY
@@ -654,6 +670,84 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
+  private spotsOf(room: RoomConfig): InteractiveSpotData[] {
+    return room.id === this.currentRoomId ? [...room.spots, ...this.deviceSpots] : room.spots;
+  }
+
+  /** Disegna i dispositivi della stanza dal lab CML: stesso numero, stessi nomi, stato reale. */
+  private renderDevices(): void {
+    this.deviceObjects.forEach((o) => o.destroy());
+    this.deviceObjects = [];
+    this.deviceSpots = [];
+    this.deviceSolid.clear();
+    const room = ROOM_CONFIGS[this.currentRoomId];
+    const devices = this.devicesByRoom[this.currentRoomId] || [];
+    const used = new Set<string>();
+    devices.forEach((d, idx) => {
+      let gx = d.game?.gx;
+      let gy = d.game?.gy;
+      if (gx === undefined || gy === undefined || used.has(`${Math.floor(gx)},${Math.floor(gy)}`)) {
+        // nodo senza posizione nel file della stanza: primo posto libero lungo la parete nord
+        const free = [1, 2, 3, 4, 5, 6].map((y) => ({ x: 1 + (idx % 2), y }))
+          .find((c) => !used.has(`${c.x},${c.y}`) && room.solidGrid[c.x][c.y] === 0);
+        if (!free) return;
+        gx = free.x; gy = free.y;
+      }
+      used.add(`${Math.floor(gx)},${Math.floor(gy)}`);
+      this.deviceSolid.add(`${Math.floor(gx)},${Math.floor(gy)}`);
+
+      const pos = this.projectPosition(gx, gy);
+      const on = d.state === 'BOOTED';
+      const texture = d.kind === 'switch' ? 'furniture_rack_sw1_sheet'
+        : d.kind === 'router' || d.kind === 'server' ? 'furniture_server_r1_sheet' : 'furniture_desk';
+      const anim = d.kind === 'switch' ? 'rack-sw1-blink' : d.kind === 'router' || d.kind === 'server' ? 'server-r1-blink' : '';
+
+      const shadow = this.add.ellipse(pos.x, pos.y + 4, 44, 18, 0x020617, 0.35)
+        .setDepth(getIsometricDepth(gx, gy, 1));
+      const sprite = this.add.sprite(pos.x, pos.y, texture, 0);
+      if (hdTextureKeys.has(texture)) sprite.setScale(1 / HD_DENSITY);
+      sprite.setOrigin(0.5, 0.85).setDepth(getIsometricDepth(gx, gy, 5));
+      if (on && anim && this.anims.exists(anim)) sprite.play(anim);
+      if (!on) sprite.setTint(0x64748b);
+
+      // targhetta con nome del nodo CML e LED di stato
+      const ledColor = on ? (d.linksUp === d.linksTotal ? 0x22c55e : 0xf59e0b)
+        : d.state === 'STOPPED' || d.state === 'DEFINED_ON_CORE' ? 0x475569 : 0xf59e0b;
+      const label = this.add.text(pos.x, pos.y - 74, d.label, {
+        fontFamily: 'monospace', fontSize: '8px', color: '#e2e8f0',
+        backgroundColor: '#0f172acc', padding: { x: 3, y: 1 }, resolution: 3,
+      }).setOrigin(0.5, 1).setDepth(getIsometricDepth(gx, gy, 8));
+      const led = this.add.circle(pos.x - label.width / 2 - 4, pos.y - 78, 2.5, ledColor)
+        .setDepth(getIsometricDepth(gx, gy, 8));
+      if (on && d.linksUp < d.linksTotal) {
+        this.tweens.add({ targets: led, alpha: 0.2, duration: 450, yoyo: true, repeat: -1 });
+      }
+      this.deviceObjects.push(shadow, sprite, label, led);
+
+      // punto d'interazione sulla casella libera piu' vicina
+      const around = [[1, 0], [0, 1], [1, 1], [-1, 0], [0, -1], [1, -1], [-1, 1]];
+      let ix = gx + 1, iy = gy;
+      for (const [dx, dy] of around) {
+        const cx = Math.floor(gx) + dx, cy = Math.floor(gy) + dy;
+        if (cx > 0 && cx < 7 && cy > 0 && cy < 7 && room.solidGrid[cx][cy] === 0 && !used.has(`${cx},${cy}`)) {
+          ix = cx + 0.5; iy = cy + 0.5;
+          break;
+        }
+      }
+      const icon = d.kind === 'switch' ? '🔀' : d.kind === 'router' ? '🛜' : d.kind === 'server' ? '🗄️' : d.kind === 'printer' ? '🖨️' : '🖥️';
+      this.deviceSpots.push({
+        id: `cml:${d.label}`,
+        name: d.display,
+        tag: `${d.kind.toUpperCase()} · ${d.label}`,
+        desc: on ? `Acceso · cavi attivi ${d.linksUp}/${d.linksTotal}` : `Stato CML: ${d.state}`,
+        icon,
+        actionText: on ? 'CONSOLE E CAVI' : 'IN AVVIO…',
+        tileX: gx, tileY: gy, interactX: ix, interactY: iy,
+        cmlNode: d.label,
+      });
+    });
+  }
+
   private projectPosition(gx: number, gy: number): { x: number; y: number } {
     const p = gridToScreen(gx, gy);
     if (this.currentRoomId === 'office') p.y -= officeElevation(gx, gy);
@@ -667,6 +761,7 @@ export class OfficeScene extends Phaser.Scene {
     const cellX = Math.floor(gx);
     const cellY = Math.floor(gy);
     if (cellX >= 0 && cellX < 8 && cellY >= 0 && cellY < 8) {
+      if (room.id === this.currentRoomId && this.deviceSolid.has(`${cellX},${cellY}`)) return false;
       return room.solidGrid[cellX][cellY] === 0;
     }
     return true;

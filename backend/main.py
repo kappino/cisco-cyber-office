@@ -12,7 +12,10 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+import asyncio
+import json
+
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 # Load backend/.env before importing services that read os.getenv() at module import time.
@@ -20,10 +23,12 @@ load_dotenv(Path(__file__).parent / ".env")
 
 from backend.ai_service import ai_service  # noqa: E402
 from backend.cml_service import cml_service  # noqa: E402
+from backend.room_labs import ROOMS, ConsoleBridge, node_spec, room_manager, room_spec  # noqa: E402
 from backend.netagent_verifier import MISSION_SPECS, verify_mission  # noqa: E402
 from backend.topology_agent import generate_mission_topology  # noqa: E402
 from backend.models import (  # noqa: E402
     AiInteractRequest,
+    CableRequest,
     MissionGenerateRequest,
     MissionVerifyRequest,
     PatchRequest,
@@ -32,7 +37,7 @@ from backend.models import (  # noqa: E402
     TerminalCommandRequest,
 )
 
-app = FastAPI(title="Cisco Cyber Office - M4 Orchestrator", version="0.4.0")
+app = FastAPI(title="Cisco Cyber Office - M4 Orchestrator", version="0.5.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -61,6 +66,7 @@ async def health() -> Dict[str, Any]:
         "ok": True,
         "cml": cml_status,
         "ollama": ai_status,
+        "rooms": {"active": room_manager.active_room, "status": room_manager.status},
         "telemetry": {
             "patched_count": len(SESSION_TELEMETRY["patched_ports"]),
             "commands_count": len(SESSION_TELEMETRY["commands"]),
@@ -71,30 +77,165 @@ async def health() -> Dict[str, Any]:
 
 @app.post("/api/cml/bootstrap-demo")
 async def bootstrap_demo() -> Dict[str, Any]:
-    """Ensure the FuoriRete_Office demo lab exists and is started on CML."""
-    return await cml_service.ensure_demo_lab()
+    """Accende la rete della stanza attiva (o dell'ufficio). Non crea piu' lab di prova fuori dalle stanze."""
+    room = room_manager.active_room or "office"
+    st = room_manager.activate(room)
+    return {"mode": "live_cml", "room_id": room, "lab_title": room_spec(room)["lab_title"], "status": st,
+            "created": False, "latency_ms": 0}
 
 
 @app.post("/api/cml/room-sync")
 async def room_sync(req: RoomSyncRequest) -> Dict[str, Any]:
-    """Stop other room labs and activate the CML lab matching the player's current room."""
-    return await cml_service.sync_room_lab(req.room_id)
+    """Non bloccante: salva, spegne gli altri lab (stop, non wipe) e accende quello della stanza."""
+    try:
+        st = room_manager.activate(req.room_id)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc))
+    return {"mode": "live_cml", "room_id": req.room_id, "lab_title": room_spec(req.room_id)["lab_title"],
+            "status": st, "latency_ms": 0}
+
+
+@app.get("/api/rooms")
+async def list_rooms() -> Dict[str, Any]:
+    return {"active": room_manager.active_room,
+            "rooms": [{"room_id": r, "lab_title": s["lab_title"], "description": s.get("description", ""),
+                       "nodes": [n["label"] for n in s["nodes"]]} for r, s in ROOMS.items()]}
+
+
+@app.post("/api/rooms/provision")
+async def provision_rooms(force: bool = False) -> Dict[str, Any]:
+    """Crea (o ricrea, se il file YAML e' cambiato) i lab di tutte le stanze. Non li accende."""
+    return {"labs": await room_manager.provision_all(force)}
+
+
+@app.get("/api/room/{room_id}/status")
+async def room_status(room_id: str) -> Dict[str, Any]:
+    if room_id not in ROOMS:
+        raise HTTPException(404, "stanza sconosciuta")
+    return room_manager.status[room_id]
+
+
+@app.get("/api/room/{room_id}/topology")
+async def room_topology(room_id: str) -> Dict[str, Any]:
+    if room_id not in ROOMS:
+        raise HTTPException(404, "stanza sconosciuta")
+    return await room_manager.topology(room_id)
+
+
+@app.post("/api/room/{room_id}/cable")
+async def room_cable(room_id: str, req: CableRequest) -> Dict[str, Any]:
+    """Stacca, ricollega o sposta un cavo: la modifica avviene sul lab CML della stanza."""
+    if room_id not in ROOMS:
+        raise HTTPException(404, "stanza sconosciuta")
+    SESSION_TELEMETRY["patched_ports"][f"{req.node}:{req.iface}"] = req.action != "unplug"
+    try:
+        return await room_manager.cable(room_id, req.action, req.node, req.iface, req.to_node, req.to_iface)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.websocket("/api/console/{room_id}/{node}")
+async def console_ws(ws: WebSocket, room_id: str, node: str) -> None:
+    """Console vera del nodo CML (termserv) dentro il browser. Testo in ingresso = tasti;
+    JSON {"type":"resize","cols":..,"rows":..} = ridimensionamento."""
+    await ws.accept()
+    ns = node_spec(room_id, node) if room_id in ROOMS else None
+    if not ns:
+        await ws.send_text(f"\r\n[dispositivo {node} non presente nella stanza {room_id}]\r\n")
+        await ws.close(code=4404)
+        return
+    if room_manager.status[room_id]["phase"] != "ready":
+        st = room_manager.status[room_id]
+        await ws.send_text(f"\r\n[la rete della stanza non e' ancora accesa: {st['message'] or st['phase']}]\r\n")
+        await ws.close(code=4409)
+        return
+    bridge = ConsoleBridge(room_spec(room_id)["lab_title"], node, ns["cml_def"], asyncio.get_running_loop())
+    try:
+        await asyncio.to_thread(bridge.open)
+    except Exception as exc:
+        await ws.send_text(f"\r\n[{exc}]\r\n")
+        await ws.close(code=4500)
+        return
+
+    async def to_browser() -> None:
+        while True:
+            data = await bridge.queue.get()
+            if data is None:
+                break
+            await ws.send_bytes(data)
+
+    async def from_browser() -> None:
+        while True:
+            msg = await ws.receive()
+            if msg["type"] == "websocket.disconnect":
+                break
+            text = msg.get("text")
+            if text is None and msg.get("bytes") is not None:
+                text = msg["bytes"].decode(errors="ignore")
+            if not text:
+                continue
+            if text.startswith("{") and '"resize"' in text:
+                try:
+                    d = json.loads(text)
+                    bridge.resize(int(d["cols"]), int(d["rows"]))
+                    continue
+                except Exception:
+                    pass
+            bridge.send(text)
+
+    tasks = [asyncio.create_task(to_browser()), asyncio.create_task(from_browser())]
+    try:
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        for t in tasks:
+            t.cancel()
+        bridge.close()
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
+
+LEGACY_RACK_PORTS = {"sw-g1": "Ethernet0/0", "sw-1": "Ethernet0/1", "sw-2": "Ethernet0/2", "sw-3": "Ethernet0/3"}
 
 
 @app.post("/api/rack/patch")
 async def rack_patch(req: PatchRequest) -> Dict[str, Any]:
-    """Handle physical cabling events from PatchRackGame and toggle CML node/port state."""
+    """Vecchio minigioco del rack: la porta viene mappata sul primo switch della stanza attiva."""
     SESSION_TELEMETRY["patched_ports"][req.port_id] = req.connected
-    res = await cml_service.toggle_interface("SW-CORE-01", req.port_id, req.connected)
-    return {**res, "port_id": req.port_id, "cable_id": req.cable_id}
+    room = room_manager.active_room
+    iface = LEGACY_RACK_PORTS.get(req.port_id, req.port_id)
+    sw = next((n["label"] for n in room_spec(room)["nodes"] if n["kind"] == "switch"), None) if room else None
+    if not sw:
+        return {"mode": "fallback_sim", "port_id": req.port_id, "cable_id": req.cable_id, "up": req.connected,
+                "detail": "nessuna stanza attiva"}
+    try:
+        await room_manager.cable(room, "plug" if req.connected else "unplug", sw, iface)
+        mode = "live_cml"
+    except Exception as exc:  # porta senza cavo nel lab: il minigioco continua in simulazione
+        return {"mode": "fallback_sim", "port_id": req.port_id, "cable_id": req.cable_id, "up": req.connected,
+                "node": sw, "interface": iface, "detail": str(exc)}
+    return {"mode": mode, "port_id": req.port_id, "cable_id": req.cable_id, "up": req.connected,
+            "node": sw, "interface": iface}
 
 
 @app.post("/api/terminal/command")
 async def terminal_command(req: TerminalCommandRequest) -> Dict[str, Any]:
-    """Record IOS CLI commands and query/execute against the live CML lab."""
+    """Esegue un comando sulla console vera del nodo (stanza attiva) e restituisce l'output completo."""
     SESSION_TELEMETRY["commands"].append({"node": req.node, "command": req.command})
     SESSION_TELEMETRY["commands"] = SESSION_TELEMETRY["commands"][-30:]
-    return await cml_service.exec_ios_command(req.node, req.command)
+    import time as _t
+    t0 = _t.perf_counter()
+    try:
+        out = await room_manager.exec_command(req.node, req.command)
+        return {"source": "live_cml", "node": req.node, "command": req.command, "output": out,
+                "latency_ms": round((_t.perf_counter() - t0) * 1000, 1)}
+    except Exception as exc:
+        return {"source": "fallback_sim", "node": req.node, "command": req.command,
+                "output": f"[SIM] {req.node}# {req.command}", "detail": str(exc),
+                "latency_ms": round((_t.perf_counter() - t0) * 1000, 1)}
 
 
 @app.post("/api/soc/sinkhole")
@@ -161,4 +302,10 @@ async def mission_verify(req: MissionVerifyRequest) -> Dict[str, Any]:
 @app.post("/api/mission/generate")
 async def mission_generate(req: MissionGenerateRequest) -> Dict[str, Any]:
     """Generate a new mission topology + configs from prompt via Ollama & netAgent, then deploy to CML."""
-    return await generate_mission_topology(req.prompt, deploy_to_cml=req.deploy_to_cml)
+    res = await generate_mission_topology(req.prompt, deploy_to_cml=req.deploy_to_cml)
+    if req.deploy_to_cml:  # il deploy spegne i lab delle stanze: lo stato va riallineato
+        room_manager.active_room = None
+        room_manager._wanted = None
+        for st in room_manager.status.values():
+            st.update({"phase": "idle", "message": "spenta da una missione generata", "ready_nodes": 0})
+    return res

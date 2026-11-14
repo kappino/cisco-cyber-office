@@ -3,6 +3,8 @@ import { sound } from '../utils/audio';
 import { infraBridge } from '../utils/infraBridge';
 import { GameScreen, AvatarConfig, PlayerStats, RoomId } from '../types/game';
 import { PhaserGameContainer } from './PhaserGameContainer';
+import { CmlDevicePanel } from './CmlDevicePanel';
+import { useRoomNetwork } from '../utils/useRoomNetwork';
 import { NpcDialogueBox } from './NpcDialogueBox';
 import { InteractiveSpotData, TimePhase } from '../game/EventBus';
 import {
@@ -68,6 +70,9 @@ export const HabboOffice: React.FC<Props> = ({
 }) => {
   const [muted, setMuted] = useState<boolean>(() => sound.isMuted);
   const [activeSpot, setActiveSpot] = useState<InteractiveSpotData | null>(null);
+  // Rete della stanza: dispositivi 1:1 con il lab CML, console e cavi veri
+  const { topology: roomNet, publish: publishRoomNet } = useRoomNetwork(currentRoom);
+  const [deviceNode, setDeviceNode] = useState<string | null>(null);
   const [targetSpotId, setTargetSpotId] = useState<string | null>(null);
   const [coffeeBoostTrigger, setCoffeeBoostTrigger] = useState<number>(0);
   const [timePhase, setTimePhase] = useState<TimePhase>('morning');
@@ -209,6 +214,12 @@ export const HabboOffice: React.FC<Props> = ({
   };
 
   const handleTriggerSpot = (spot: InteractiveSpotData) => {
+    if (spot.cmlNode) {
+      sound.playClick();
+      setActiveSpot(null);
+      setDeviceNode(spot.cmlNode);
+      return;
+    }
     if (spot.isElevator) {
       handleElevatorClick(spot);
     } else if (spot.isCoffee) {
@@ -397,7 +408,7 @@ export const HabboOffice: React.FC<Props> = ({
         </div>
       </div>
       {/* Main Isometric Room Container */}
-      <main className="flex flex-col items-center justify-start p-2 sm:p-3 bg-[#0d121f]">
+      <main className="relative flex flex-col items-center justify-start p-2 sm:p-3 bg-[#0d121f]">
         {/* Room Title Header */}
         <div className="w-full max-w-4xl flex items-center justify-between pb-1 mb-1.5 border-b border-slate-800 text-[10.5px] sm:text-xs text-slate-400">
           <div className="flex items-center gap-1.5 font-bold tracking-wider">
@@ -439,7 +450,31 @@ export const HabboOffice: React.FC<Props> = ({
             timePhase={timePhase}
           />
         </div>
+        {roomNet && roomNet.status.phase !== 'ready' && (
+          <div className="absolute left-2 bottom-2 z-20 max-w-[90%] px-2 py-1 rounded-lg text-[10px] font-mono border bg-slate-950/90 border-amber-500/60 text-amber-200">
+            {roomNet.status.phase === 'error'
+              ? `Rete della stanza non disponibile: ${roomNet.status.message}`
+              : `Rete della stanza (${roomNet.lab_title}): ${roomNet.status.message || 'in attesa'}`}
+            {(roomNet.status.phase === 'error' || roomNet.status.phase === 'idle') && (
+              <button
+                onClick={() => void infraBridge.syncRoomLab(currentRoom)}
+                className="ml-2 px-2 py-0.5 rounded border border-amber-400 text-amber-100 hover:bg-amber-500/20"
+              >
+                Riaccendi la rete
+              </button>
+            )}
+          </div>
+        )}
       </main>
+      {deviceNode && (
+        <CmlDevicePanel
+          roomId={currentRoom}
+          node={deviceNode}
+          topology={roomNet}
+          onTopology={publishRoomNet}
+          onClose={() => setDeviceNode(null)}
+        />
+      )}
 
       {/* UNIFIED ACTION DOCK: ALWAYS CLEAN, INTUITIVE & NON-OVERLAPPING */}
       <section className="w-full max-w-4xl mx-auto px-2 sm:px-3 pb-3 z-30 font-mono flex flex-col gap-2">

@@ -1,3 +1,4 @@
+import asyncio
 import os
 import time
 from typing import Any, Dict, List, Optional
@@ -391,11 +392,21 @@ class CMLService:
             async with self._client(timeout=12.0) as client:
                 headers = await self._headers(client)
 
-                # Stop other labs first so CML-Free's 5-node license limit is freed
+                # Stop other labs first so CML-Free's 5-node license limit is freed;
+                # labs with the same title are removed so repeated deploys do not pile up.
                 existing_labs = await client.get("/api/v0/labs", headers=headers)
                 if existing_labs.status_code == 200:
                     for old_id in existing_labs.json():
                         await client.put(f"/api/v0/labs/{old_id}/stop", headers=headers)
+                        info = await client.get(f"/api/v0/labs/{old_id}", headers=headers)
+                        if info.status_code == 200 and info.json().get("lab_title") == lab_title:
+                            for _ in range(30):
+                                ns = await client.get(f"/api/v0/labs/{old_id}/nodes?data=true", headers=headers)
+                                if ns.status_code != 200 or all(n["state"] == "STOPPED" for n in ns.json()):
+                                    break
+                                await asyncio.sleep(1)
+                            await client.put(f"/api/v0/labs/{old_id}/wipe", headers=headers)
+                            await client.delete(f"/api/v0/labs/{old_id}", headers=headers)
 
                 create_resp = await client.post(
                     "/api/v0/labs",

@@ -9,7 +9,6 @@ import { BadgeShowcase } from './components/BadgeShowcase';
 import { AvatarCustomizerModal } from './components/AvatarCustomizerModal';
 import { RpgSkillModal } from './components/RpgSkillModal';
 import { InfraMonitorBadge } from './components/InfraMonitorBadge';
-import { infraBridge } from './utils/infraBridge';
 import { AnimatePresence, motion } from 'framer-motion';
 import { sound } from './utils/audio';
 
@@ -265,8 +264,7 @@ export function App() {
                 stats={stats}
                 currentRoom={currentRoom}
                 onRoomChange={(r) => {
-                  setCurrentRoom(r);
-                  void infraBridge.syncRoomLab(r);
+                  setCurrentRoom(r); // il lab CML della stanza lo accende useRoomNetwork
                 }}
                 level1Done={level1Done}
                 level2Done={level2Done}
