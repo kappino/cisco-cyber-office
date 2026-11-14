@@ -123,11 +123,12 @@ async def room_topology(room_id: str) -> Dict[str, Any]:
 
 
 @app.get("/api/room/{room_id}/ports")
-async def room_ports(room_id: str) -> Dict[str, Any]:
-    """LED delle porte letti dagli apparati veri (switch e router della stanza)."""
+async def room_ports(room_id: str, fresh: bool = False) -> Dict[str, Any]:
+    """LED delle porte letti dagli apparati veri (switch e router della stanza).
+    `fresh=true` dopo un cambiamento (cavo, comando di configurazione): salta la cache."""
     if room_id not in ROOMS:
         raise HTTPException(404, "stanza sconosciuta")
-    return await room_manager.ports(room_id)
+    return await room_manager.ports(room_id, fresh)
 
 
 @app.get("/api/room/{room_id}/verify")
@@ -193,13 +194,18 @@ async def console_ws(ws: WebSocket, room_id: str, node: str) -> None:
                 text = msg["bytes"].decode(errors="ignore")
             if not text:
                 continue
-            if text.startswith("{") and '"resize"' in text:
+            if text.startswith("{") and '"type"' in text:
+                # messaggi di controllo dal gioco (JSON): ridimensionamento, replay dei tasti bufferizzati
                 try:
                     d = json.loads(text)
+                except ValueError:
+                    d = None
+                if isinstance(d, dict) and d.get("type") == "replay":
+                    await asyncio.to_thread(bridge.replay, str(d.get("echoed", "")), str(d.get("raw", "")))
+                    continue
+                if isinstance(d, dict) and d.get("type") == "resize":
                     bridge.resize(int(d["cols"]), int(d["rows"]))
                     continue
-                except Exception:
-                    pass
             bridge.send(text)
 
     async def watch_lock() -> None:
@@ -214,9 +220,12 @@ async def console_ws(ws: WebSocket, room_id: str, node: str) -> None:
                     # rientra nella modalita' di prima (config, interface ...) e ridisegna il prompt,
                     # tenendo il terminale bloccato finche' non ha finito
                     await asyncio.to_thread(bridge.restore_mode, was in SILENT_LOCKS)
-                if not ((now or was) in SILENT_LOCKS):  # la lettura dei LED non si vede
-                    await ws.send_text(json.dumps({"type": "lock", "on": bool(now), "reason": now or ""}))
+                silent = (now or was) in SILENT_LOCKS  # lettura LED: il gioco fa eco locale, niente avviso
+                await ws.send_text(json.dumps({"type": "lock", "on": bool(now), "reason": now or "", "silent": silent}))
                 was = now
+            if bridge.net_changed:
+                bridge.net_changed = False
+                await ws.send_text(json.dumps({"type": "changed"}))
             await asyncio.sleep(0.2)
 
     tasks = [asyncio.create_task(to_browser()), asyncio.create_task(from_browser()),

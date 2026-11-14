@@ -448,9 +448,9 @@ class InfraBridge {
     }
   }
 
-  async getRoomPorts(roomId: string): Promise<RoomPorts | null> {
+  async getRoomPorts(roomId: string, fresh = false): Promise<RoomPorts | null> {
     try {
-      const res = await fetch(`/api/room/${roomId}/ports`);
+      const res = await fetch(`/api/room/${roomId}/ports${fresh ? '?fresh=true' : ''}`);
       return res.ok ? ((await res.json()) as RoomPorts) : null;
     } catch {
       return null;

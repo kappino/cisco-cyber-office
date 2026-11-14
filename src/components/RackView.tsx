@@ -40,7 +40,9 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
   const inner = useRef<HTMLDivElement>(null);
   const portEls = useRef(new Map<string, HTMLElement>());
 
-  // LED reali: letti dagli apparati ogni 8 s mentre l'armadio e' aperto (mai su una console in uso)
+  // LED reali: letti dagli apparati ogni 8 s mentre l'armadio e' aperto, piu' letture extra
+  // subito dopo un cambiamento (cavo, comando di configurazione dalla console)
+  const refreshTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => {
     let alive = true;
     const tick = async () => {
@@ -49,7 +51,19 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
     };
     void tick();
     const t = setInterval(tick, 8000);
-    return () => { alive = false; clearInterval(t); };
+    return () => {
+      alive = false;
+      clearInterval(t);
+      refreshTimers.current.forEach(clearTimeout);
+    };
+  }, [roomId]);
+  const refreshSoon = useCallback((delaysMs: number[]) => {
+    for (const ms of delaysMs) {
+      refreshTimers.current.push(setTimeout(async () => {
+        const p = await infraBridge.getRoomPorts(roomId, true);
+        if (p) setPorts(p);
+      }, ms));
+    }
   }, [roomId]);
 
   useEffect(() => {
@@ -116,6 +130,7 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
     if (res.ok && res.topology) {
       onTopology(res.topology);
       sound.playClick();
+      refreshSoon([1000, 4000]);  // il link sale, poi STP passa (eventualmente) da ambra a verde
     } else setError(res.error ?? 'operazione non riuscita');
   };
 
@@ -402,7 +417,7 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
 
             {consoleOn && (
               <div className="mt-3">
-                {consoleReady ? <CmlConsole key={consoleOn} roomId={roomId} node={consoleOn} height={300} />
+                {consoleReady ? <CmlConsole key={consoleOn} roomId={roomId} node={consoleOn} height={300} onNetChange={() => refreshSoon([2000, 6000])} />
                   : <div className="text-amber-300 text-xs">{consoleOn} non è ancora avviato: la console risponde quando il LED SYS è verde.</div>}
               </div>
             )}

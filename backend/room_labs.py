@@ -810,11 +810,11 @@ class RoomManager:
     _ports_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
     _counters: Dict[Tuple[str, str], Tuple[float, int, int]] = {}  # (nodo, porta) -> (t, pacchetti, errori)
 
-    async def ports(self, room_id: str) -> Dict[str, Any]:
+    async def ports(self, room_id: str, fresh: bool = False) -> Dict[str, Any]:
         """Stato reale delle porte: switch `show interfaces status` + porte bloccate da STP,
         router `show ip interface brief`. LED: green / amber / off. Cache di 4 s."""
         hit = self._ports_cache.get(room_id)
-        if hit and time.time() - hit[0] < 7:
+        if hit and time.time() - hit[0] < (1.5 if fresh else 7):
             return hit[1]
         spec = room_spec(room_id)
         if self.status[room_id]["phase"] != "ready":
@@ -987,6 +987,7 @@ class ConsoleBridge:
         self.queued = ""         # tasti arrivati durante un blocco: si inviano dopo
         self.last_key = 0.0
         self.last_output = 0.0
+        self.net_changed = False  # un comando appena dato puo' aver cambiato porte/VLAN/STP
 
     def open(self) -> None:
         self.ssh, self.chan, rest = open_console(self.lab_title, self.node_label, self.cols, self.rows)
@@ -1117,14 +1118,37 @@ class ConsoleBridge:
         at_prompt = bool(self.last_prompt) and bool(self._PROMPT.search(self._text)) if self.cml_def in IOS_DEFS else True
         return now - self.last_key > quiet_s and now - self.last_output > 1.5 and at_prompt
 
+    _CHANGING_EXEC = re.compile(r"^\s*(clear|shut|no shut|reload|copy|write|wr\b)", re.IGNORECASE)
+
     def send(self, data: str) -> None:
         self.last_key = time.time()
         if self.locked():
             self.queued += data  # tasti durante un blocco: inviati appena finisce
             return
+        if "\r" in data and self.cml_def in IOS_DEFS:
+            line = (self.pending + data.split("\r")[0]).strip()
+            in_config = bool(self.last_prompt and self.last_prompt.group(2))
+            if line and (in_config or self._CHANGING_EXEC.match(line)):
+                self.net_changed = True
         self._note_keys(data)
         if self.chan and not self.chan.closed:
             self.chan.send(data)
+
+    def replay(self, echoed: str, raw: str) -> None:
+        """Tasti scritti nel gioco durante un blocco silenzioso: `echoed` e' gia' sullo schermo del
+        giocatore (eco locale), quindi va al dispositivo con l'eco nascosta; `raw` va inviato normalmente."""
+        if not (self.chan and not self.chan.closed):
+            return
+        if echoed:
+            self._suppress = True
+            try:
+                self._note_keys(echoed)
+                self.chan.send(echoed)
+                time.sleep(0.5)  # l'eco del dispositivo arriva entro questo tempo
+            finally:
+                self._suppress = False
+        if raw:
+            self.send(raw)
 
     def _note_keys(self, data: str) -> None:
         for ch in data:

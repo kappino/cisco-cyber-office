@@ -9,8 +9,12 @@ import { infraBridge, RoomTopology } from '../utils/infraBridge';
  * Console vera di un nodo CML dentro xterm.js: WebSocket verso il backend, che la collega
  * al console server di CML. Ogni tasto parte subito, l'output arriva appena il nodo lo scrive.
  */
-export const CmlConsole: React.FC<{ roomId: string; node: string; height?: number }> = ({ roomId, node, height = 300 }) => {
+export const CmlConsole: React.FC<{ roomId: string; node: string; height?: number; onNetChange?: () => void }> = ({
+  roomId, node, height = 300, onNetChange,
+}) => {
   const host = useRef<HTMLDivElement>(null);
+  const onNetChangeRef = useRef(onNetChange);
+  onNetChangeRef.current = onNetChange;
   const [state, setState] = useState<'connecting' | 'open' | 'closed'>('connecting');
   const [lock, setLock] = useState<string | null>(null);
 
@@ -40,15 +44,29 @@ export const CmlConsole: React.FC<{ roomId: string; node: string; height?: numbe
       sendSize();
       term.focus();
     };
+    // Blocco silenzioso (lettura dei LED): il terminale resta vivo con un'eco locale; i tasti
+    // vengono messi da parte e inviati allo sblocco. `echoed` e' gia' sullo schermo (il backend lo
+    // manda al dispositivo con l'eco nascosta), `raw` contiene i tasti da Tab/?/Invio/frecce in poi.
+    let silentLock = false;
+    let echoed = '';
+    let raw = '';
     ws.onmessage = (ev) => {
       if (typeof ev.data === 'string' && ev.data.startsWith('{"type":')) {
-        // messaggi di controllo: blocco della console durante la Verifica
         try {
-          const msg = JSON.parse(ev.data) as { type: string; on: boolean; reason: string };
-          if (msg.type === 'lock') {
+          const msg = JSON.parse(ev.data) as { type: string; on?: boolean; reason?: string; silent?: boolean };
+          if (msg.type === 'lock' && msg.silent) {
+            silentLock = !!msg.on;
+            if (!msg.on && (echoed || raw) && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'replay', echoed, raw }));
+            }
+            if (!msg.on) { echoed = ''; raw = ''; }
+          } else if (msg.type === 'lock') {
+            // blocco visibile (Verifica): avviso sopra il terminale, tastiera disattivata
             setLock(msg.on ? msg.reason || 'Operazione in corso' : null);
-            term.options.disableStdin = msg.on;
+            term.options.disableStdin = !!msg.on;
             if (!msg.on) term.focus();
+          } else if (msg.type === 'changed') {
+            onNetChangeRef.current?.();  // comando di configurazione: i LED vanno riletti
           }
         } catch { /* non era un messaggio di controllo */ }
         return;
@@ -60,6 +78,21 @@ export const CmlConsole: React.FC<{ roomId: string; node: string; height?: numbe
       term.write('\r\n\x1b[33m[console chiusa]\x1b[0m\r\n');
     };
     const sub = term.onData((d) => {
+      if (silentLock) {
+        for (const ch of d) {
+          const printable = ch >= ' ' && ch !== '\x7f' && ch !== '?';
+          if (!raw && printable) {
+            echoed += ch;
+            term.write(ch);
+          } else if (!raw && ch === '\x7f' && echoed) {
+            echoed = echoed.slice(0, -1);
+            term.write('\b \b');
+          } else {
+            raw += ch;
+          }
+        }
+        return;
+      }
       if (ws.readyState === WebSocket.OPEN) ws.send(d);
     });
     const ro = new ResizeObserver(() => {
