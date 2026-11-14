@@ -208,9 +208,13 @@ async def console_ws(ws: WebSocket, room_id: str, node: str) -> None:
         while True:
             now = bridge.locked()
             if now != was:
-                await ws.send_text(json.dumps({"type": "lock", "on": bool(now), "reason": now or ""}))
+                if now and not was:
+                    bridge.snapshot_mode()  # modalita' del giocatore prima della Verifica
                 if was and not now:
-                    bridge.redraw_prompt()  # console di nuovo libera: ricompare il prompt
+                    # rientra nella modalita' di prima (config, interface ...) e ridisegna il prompt,
+                    # tenendo il terminale bloccato finche' non ha finito
+                    await asyncio.to_thread(bridge.restore_mode)
+                await ws.send_text(json.dumps({"type": "lock", "on": bool(now), "reason": now or ""}))
                 was = now
             await asyncio.sleep(0.2)
 

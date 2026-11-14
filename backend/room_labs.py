@@ -125,6 +125,17 @@ class CmlApi:
 # ---------------------------------------------------------------------------
 # Console (termserv di CML via SSH)
 # ---------------------------------------------------------------------------
+_NODE_LOCKS: Dict[Tuple[str, str], threading.Lock] = {}
+_NODE_LOCKS_GUARD = threading.Lock()
+
+
+def node_lock(lab_title: str, node_label: str) -> threading.Lock:
+    """Un'operazione automatica alla volta per nodo: la console seriale e' una linea sola e due
+    letture contemporanee (es. LED e Verifica) mescolerebbero i loro output."""
+    with _NODE_LOCKS_GUARD:
+        return _NODE_LOCKS.setdefault((lab_title, node_label), threading.Lock())
+
+
 def open_console(lab_title: str, node_label: str, width: int = 120, height: int = 32
                  ) -> Tuple[paramiko.SSHClient, paramiko.Channel, bytes]:
     """Apre la console seriale del nodo. Ritorna (ssh, canale, testo gia' ricevuto dopo il preambolo)."""
@@ -191,6 +202,12 @@ def run_console_command(lab_title: str, node_label: str, cml_def: str, command: 
 def run_console_commands(lab_title: str, node_label: str, cml_def: str, commands: List[str],
                          timeout: float = 10) -> List[str]:
     """Piu' comandi nella stessa sessione console (una sola connessione)."""
+    with node_lock(lab_title, node_label):
+        return _run_console_commands(lab_title, node_label, cml_def, commands, timeout)
+
+
+def _run_console_commands(lab_title: str, node_label: str, cml_def: str, commands: List[str],
+                          timeout: float) -> List[str]:
     ssh, chan, _ = open_console(lab_title, node_label)
     try:
         linux = cml_def in LINUX_DEFS
@@ -224,6 +241,11 @@ def run_console_commands(lab_title: str, node_label: str, cml_def: str, commands
 
 def save_ios_config(lab_title: str, node_label: str) -> bool:
     """`write memory` dalla console: la configurazione resta dopo stop/start (verificato su CML 2.10)."""
+    with node_lock(lab_title, node_label):
+        return _save_ios_config(lab_title, node_label)
+
+
+def _save_ios_config(lab_title: str, node_label: str) -> bool:
     ssh, chan, _ = open_console(lab_title, node_label)
     try:
         chan.send("\r\x1a\r")  # Ctrl+Z: esce da eventuale modalita' configurazione
@@ -239,6 +261,11 @@ def save_ios_config(lab_title: str, node_label: str) -> bool:
 
 def console_configure(lab_title: str, node_label: str, lines: List[str]) -> str:
     """Applica righe di configurazione dalla console vera e salva (write memory)."""
+    with node_lock(lab_title, node_label):
+        return _console_configure(lab_title, node_label, lines)
+
+
+def _console_configure(lab_title: str, node_label: str, lines: List[str]) -> str:
     ssh, chan, _ = open_console(lab_title, node_label)
     try:
         chan.send("\r\x1a\renable\r")
@@ -676,7 +703,8 @@ class RoomManager:
             return n["label"], res
 
         nodes = [n for n in spec["nodes"] if n.get("kind") in ("switch", "router") and n["cml_def"] in IOS_DEFS]
-        busy = [n for n in nodes if OPEN_CONSOLES.get((spec["lab_title"], n["label"]))]
+        busy = [n for n in nodes if OPEN_CONSOLES.get((spec["lab_title"], n["label"]))
+                or (spec["lab_title"], n["label"]) in CONSOLE_LOCKS]
         free = [n for n in nodes if n not in busy]
         pairs = dict(await asyncio.gather(*[asyncio.to_thread(read, n) for n in free]))
         previous = (hit[1]["ports"] if hit else {})
@@ -699,6 +727,9 @@ class RoomManager:
         def device_diff(n: Dict[str, Any]) -> Dict[str, Any]:
             try:
                 (run,) = run_console_commands(title, n["label"], n["cml_def"], ["show running-config"], timeout=20)
+                if "Building configuration" not in run or not re.search(r"^end\s*$", run, re.M):
+                    return {"node": n["label"], "kind": n.get("kind"), "missing": [], "extra": [], "ok": False,
+                            "error": "lettura della running-config incompleta: riprova la verifica"}
                 d = diff_config(n.get("config", ""), run)
                 return {"node": n["label"], "kind": n.get("kind"), **d,
                         "ok": not d["missing"] and not d["extra"], "error": None}
@@ -803,6 +834,12 @@ class ConsoleBridge:
         self.ssh: Optional[paramiko.SSHClient] = None
         self.chan: Optional[paramiko.Channel] = None
         self._stop = threading.Event()
+        # modalita' IOS del giocatore, ricavata dall'eco della console (per ripristinarla dopo la Verifica)
+        self._text = ""
+        self.last_prompt: Optional[re.Match] = None
+        self.submode_cmd: Optional[str] = None
+        self._saved: Optional[Tuple[str, Optional[str]]] = None
+        self._suppress = False
 
     def open(self) -> None:
         self.ssh, self.chan, rest = open_console(self.lab_title, self.node_label, self.cols, self.rows)
@@ -831,8 +868,9 @@ class ConsoleBridge:
                     continue
                 if not data:
                     break
-                if (self.lab_title, self.node_label) in CONSOLE_LOCKS:
+                if (self.lab_title, self.node_label) in CONSOLE_LOCKS or self._suppress:
                     continue  # output di un'operazione automatica: il giocatore non lo vede
+                self._track(data)
                 self._emit(data)
                 if not logged_in and time.time() - t0 < 30:
                     tail = (tail + data.decode(errors="ignore"))[-80:]
@@ -844,6 +882,60 @@ class ConsoleBridge:
                         logged_in = True
         finally:
             self.loop.call_soon_threadsafe(self.queue.put_nowait, None)
+
+    # ---- modalita' IOS: tracciamento e ripristino ----------------------------
+    _PROMPT = re.compile(r"([\w\-.]+)(?:\((config[^)]*)\))?([>#])\s*$")
+    _CFG_LINE = re.compile(r"^[\w\-.]+\((config[^)]*)\)#\s*(\S.*)$")
+    _SUBMODE = re.compile(r"^(int|interface|vlan|line|ip dhcp pool|ip dhcp|router|ip access-list|ip acc|spanning-tree mst conf)",
+                          re.IGNORECASE)
+
+    def _track(self, data: bytes) -> None:
+        if self.cml_def not in IOS_DEFS:
+            return
+        text = ANSI_ESC.sub("", data.decode(errors="ignore")).replace("\r", "")
+        chars: List[str] = []
+        for ch in self._text + text:  # applica i backspace dell'eco ("\b \b")
+            if ch == "\x08":
+                if chars and chars[-1] != "\n":
+                    chars.pop()
+            else:
+                chars.append(ch)
+        lines = "".join(chars).split("\n")
+        for done in lines[:-1]:  # righe complete: comandi dati in configurazione
+            m = self._CFG_LINE.match(done.strip())
+            if m and self._SUBMODE.match(m.group(2)) and not m.group(2).lower().startswith("no "):
+                self.submode_cmd = m.group(2).strip()
+        self._text = lines[-1][-300:]
+        m = self._PROMPT.search(self._text)
+        if m:
+            self.last_prompt = m
+
+    def snapshot_mode(self) -> None:
+        """Annota la modalita' attuale del giocatore (prima della Verifica)."""
+        if self.cml_def not in IOS_DEFS or not self.last_prompt:
+            self._saved = None
+            return
+        cfg, sign = self.last_prompt.group(2), self.last_prompt.group(3)
+        mode = "exec" if sign == ">" else "priv" if not cfg else "config" if cfg == "config" else "submode"
+        self._saved = (mode, self.submode_cmd if mode == "submode" else None)
+
+    def restore_mode(self) -> None:
+        """Dopo la Verifica: rientra nella modalita' annotata senza mostrarlo, poi ridisegna il prompt."""
+        saved, self._saved = self._saved, None
+        if not (self.chan and not self.chan.closed):
+            return
+        if saved and saved[0] != "priv":
+            self._suppress = True
+            try:
+                mode, sub = saved
+                cmds = ["disable"] if mode == "exec" else ["configure terminal"] + ([sub] if mode == "submode" and sub else [])
+                for c in cmds:
+                    self.chan.send(c + "\r")
+                    time.sleep(0.4)
+                time.sleep(0.4)
+            finally:
+                self._suppress = False
+        self.chan.send("\r")
 
     def locked(self) -> Optional[str]:
         return CONSOLE_LOCKS.get((self.lab_title, self.node_label))
