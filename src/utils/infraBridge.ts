@@ -113,6 +113,7 @@ export interface PortLed {
 export interface RoomPorts {
   room_id: string;
   ready: boolean;
+  read_at?: number;
   ports: Record<string, Record<string, PortLed | string | boolean>>;
 }
 

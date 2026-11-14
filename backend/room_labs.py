@@ -299,6 +299,32 @@ def _console_configure(lab_title: str, node_label: str, lines: List[str]) -> str
         ssh.close()
 
 
+def bounce_port(lab_title: str, node_label: str, iface: str) -> str:
+    """Simula l'inserimento fisico di un cavo: IOL non rileva il cambio di link, quindi la porta va giu' e
+    risale (shutdown / no shutdown) e STP riparte come su uno switch vero. Niente `write memory`: la
+    configurazione salvata resta quella del giocatore. Se la porta e' in shutdown per scelta, non si tocca."""
+    with node_lock(lab_title, node_label):
+        ssh, chan, _ = open_console(lab_title, node_label)
+        try:
+            chan.send("\x03\x15\r\x1a\renable\r")
+            _read_until(chan, lambda s: s.rstrip().endswith("#"), 4)
+            _read_until(chan, lambda s: False, 0.3)
+            chan.send(f"show running-config interface {iface}\r")
+            cfg = _read_until(chan, lambda s: bool(re.search(r"^end\s*$", s, re.M)), 6)
+            if re.search(r"^\s+shutdown\s*$", cfg, re.M):
+                return "porta in shutdown: non toccata"
+            for c in ("configure terminal", f"interface {iface}", "shutdown"):
+                chan.send(c + "\r")
+                _read_until(chan, lambda s: s.rstrip().endswith("#"), 3)
+            time.sleep(1.0)
+            for c in ("no shutdown", "end"):
+                chan.send(c + "\r")
+                _read_until(chan, lambda s: s.rstrip().endswith("#"), 3)
+            return "porta rimbalzata"
+        finally:
+            ssh.close()
+
+
 def first_boot_fixups(spec: Dict[str, Any]) -> List[Tuple[str, List[str]]]:
     """Righe da applicare al primo avvio: su IOL la `no shutdown` iniziale delle interfacce
     senza indirizzo IP (es. la madre delle sottointerfacce) viene ignorata (verificato su CML 2.10)."""
@@ -441,17 +467,21 @@ def read_port_leds(lab_title: str, n: Dict[str, Any],
             fwd = [x for x in states if x[2] == "FWD"]
             blk = [x for x in states if x[2] in ("BLK", "DIS", "BKN")]
             lrn = [x for x in states if x[2] in ("LRN", "LIS")]
-            if states and not fwd and blk:
+            alt = [x for x in blk if x[1] in ("Altn", "Back")]
+            if states and not fwd and alt and len(alt) == len(blk):
+                # porta alternata/di riserva bloccata da STP: ambra lampeggiante
                 led = "amber_blink"
-                reason = "STP: bloccata (" + ", ".join(f"VLAN {v} {r} {s}" for v, r, s in blk[:3]) + ")"
-            elif states and not fwd and lrn:
+                reason = "STP: bloccata (" + ", ".join(f"VLAN {v} {r} {s}" for v, r, s in alt[:3]) + ")"
+            elif states and not fwd and (lrn or blk):
+                # appena collegata, STP non ha ancora messo la porta in inoltro (discarding/learning): ambra fisso
                 led = "amber"
-                reason = "STP: in verifica (" + ", ".join(f"VLAN {v} {s}" for v, r, s in lrn[:3]) + ")"
+                reason = "STP: in verifica (" + ", ".join(f"VLAN {v} {r} {s}" for v, r, s in (lrn or blk)[:3]) + ")"
             elif new_errs > 0:
                 led, reason = "green_amber", f"errori sul link (+{new_errs})"
                 syst_fault = True
-            elif pps > ACTIVITY_PPS:
-                led, reason = "green_blink", f"traffico ({pps:.0f} pacchetti/s)"
+            elif pps > ACTIVITY_PPS or (vlan.isdigit() and prev and dt < 6 and c["pkts"] - prev[1] >= 4):
+                # traffico continuo, oppure breve picco su una porta d'accesso (DHCP/ARP di un PC appena collegato)
+                led, reason = "green_blink", f"traffico ({c['pkts'] - prev[1] if prev else 0} pacchetti in {dt:.0f} s)"
             else:
                 led, reason = "green", "link su, inoltro"
             if blk and fwd:
@@ -804,7 +834,28 @@ class RoomManager:
                 await self.api.put(f"/labs/{lid}/links/{new_id}/state/start")
         else:
             raise ValueError(f"azione sconosciuta: {action}")
+        if action in ("connect", "move", "plug"):
+            ends = [(node, iface)] + ([(to_node, to_iface)] if action in ("connect", "move") else [])
+            if action == "plug" and link:
+                other = link["interface_b"] if link["interface_a"] == src else link["interface_a"]
+                oi = next((i for i in ifaces if i["id"] == other), None)
+                if oi:
+                    ends.append((next(n["label"] for n in nodes if n["id"] == oi["node"]), oi["label"]))
+            asyncio.create_task(self._bounce(spec, [(n, i) for n, i in ends if n]))
         return await self.topology(room_id)
+
+    async def _bounce(self, spec: Dict[str, Any], ends: List[Tuple[str, str]]) -> None:
+        """Rimbalzo delle porte IOS appena cablate, in silenzio per le console aperte dai giocatori."""
+        for label, iface in ends:
+            ns = next((n for n in spec["nodes"] if n["label"] == label), None)
+            if not ns or ns["cml_def"] not in IOS_DEFS or not iface.startswith("Ethernet"):
+                continue
+            try:
+                with console_lock(spec["lab_title"], [label], "LED"):
+                    await asyncio.sleep(0.5)
+                    await asyncio.to_thread(bounce_port, spec["lab_title"], label, iface)
+            except Exception:
+                pass  # se la console non risponde il cavo resta comunque collegato
 
     async def _create_link(self, lid: str, a: str, b: str, tries: int = 10) -> Optional[str]:
         """Dopo una DELETE, CML libera l'interfaccia in modo asincrono: riprova per qualche secondo."""

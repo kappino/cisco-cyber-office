@@ -122,15 +122,27 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
     return () => { ro.disconnect(); window.removeEventListener('resize', recompute); };
   }, [recompute]);
 
+  // porte appena collegate: spente finche' non arriva una lettura successiva al collegamento
+  // (su uno switch vero il link impiega 1-3 s a salire, poi STP decide verde o ambra)
+  const [linking, setLinking] = useState<Record<string, number>>({});
   const run = async (body: Parameters<typeof infraBridge.cable>[1]) => {
     setBusy(true);
     setError(null);
+    const before = new Set((topology?.links ?? []).map((l) => `${key(l.a)}~${key(l.b)}`));
     const res = await infraBridge.cable(roomId, body);
     setBusy(false);
     if (res.ok && res.topology) {
+      const now = Date.now();
+      const fresh: Record<string, number> = {};
+      for (const l of res.topology.links) {
+        if (!before.has(`${key(l.a)}~${key(l.b)}`)) { fresh[key(l.a)] = now; fresh[key(l.b)] = now; }
+      }
+      if (body.action === 'plug') { fresh[key({ node: body.node, iface: body.iface })] = now; }
+      setLinking((prev) => ({ ...prev, ...fresh }));
       onTopology(res.topology);
       sound.playClick();
-      refreshSoon([1000, 4000]);  // il link sale, poi STP passa (eventualmente) da ambra a verde
+      // il link sale, poi STP: subito (portfast) o dopo ~30 s di ambra (senza portfast)
+      refreshSoon([1500, 4000, 16000, 32000]);
     } else setError(res.error ?? 'operazione non riuscita');
   };
 
@@ -195,6 +207,8 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
   };
   const ledOf = (d: RoomTopologyDevice, i: RoomInterface): LedState => {
     if (d.state !== 'BOOTED' || !i.connected || i.link_state !== 'STARTED') return 'off';
+    const since = linking[key({ node: d.label, iface: i.label })];
+    if (since && (!ports?.read_at || ports.read_at * 1000 < since + 800)) return 'off';  // link in negoziazione
     return portInfo(d, i)?.led ?? 'green';
   };
   const LED_CLASS: Record<LedState, string> = {

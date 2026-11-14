@@ -1,6 +1,8 @@
 # Stanza "office" (Ufficio operativo, 1F) -> lab CML FuoriRete_Room_Office
 # Rete d'accesso di un piano: router-on-a-stick con DHCP, uno switch d'accesso,
 # VLAN separate per reparto e stampante di rete in una VLAN servizi.
+# La presa della sala riunioni (Et1/0) NON ha portfast: collegandoci un PC la porta resta ambra
+# circa 30 s (STP) prima di passare al verde.
 room_id: office
 lab_title: FuoriRete_Room_Office
 description: "Piano 1: VLAN per reparto, trunk 802.1Q, router-on-a-stick, DHCP"
@@ -100,7 +102,6 @@ nodes:
        description presa libera sala riunioni (Marketing)
        switchport mode access
        switchport access vlan 10
-       spanning-tree portfast
       interface Ethernet1/1
        description presa libera (Amministrazione)
        switchport mode access
