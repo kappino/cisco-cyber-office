@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { X, Cable, AlertTriangle, Unplug } from 'lucide-react';
+import { X, Cable, AlertTriangle, Unplug, ClipboardCheck, CheckCircle2, XCircle } from 'lucide-react';
 import { sound } from '../utils/audio';
-import { infraBridge, RoomPorts, RoomTopology, RoomTopologyDevice, RoomInterface } from '../utils/infraBridge';
+import { infraBridge, RoomPorts, RoomTopology, RoomTopologyDevice, RoomInterface, RoomVerify } from '../utils/infraBridge';
 import { CmlConsole } from './CmlDevicePanel';
 
 interface Props {
@@ -32,6 +32,8 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [verify, setVerify] = useState<RoomVerify | null>(null);
+  const [verifying, setVerifying] = useState(false);
   const [paths, setPaths] = useState<{ id: string; d: string; color: string; dashed: boolean }[]>([]);
   const inner = useRef<HTMLDivElement>(null);
   const portEls = useRef(new Map<string, HTMLElement>());
@@ -146,6 +148,15 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
     }
   };
 
+  const runVerify = async () => {
+    setVerifying(true);
+    setError(null);
+    const res = await infraBridge.verifyRoom(roomId);
+    setVerifying(false);
+    if (res.ok && res.data) setVerify(res.data);
+    else setError(res.error ?? 'verifica non riuscita');
+  };
+
   const onConsolePort = (label: string) => {
     setError(null);
     setSelected(null);
@@ -229,7 +240,17 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
               Clicca una porta e poi un'altra per collegarle · clicca un cavo e poi una porta libera per spostarlo · clicca due volte la stessa porta per togliere il cavo
             </div>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-slate-800" aria-label="Chiudi"><X className="w-4 h-4" /></button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => void runVerify()}
+              disabled={verifying}
+              className="flex items-center gap-1 px-3 py-1.5 rounded border border-emerald-500 text-emerald-200 text-xs hover:bg-emerald-500/20 disabled:opacity-50"
+              title="Confronta le configurazioni vere con il target e prova DHCP e ping"
+            >
+              <ClipboardCheck className="w-4 h-4" /> {verifying ? 'Verifico…' : 'Verifica'}
+            </button>
+            <button onClick={onClose} className="p-1 rounded hover:bg-slate-800" aria-label="Chiudi"><X className="w-4 h-4" /></button>
+          </div>
         </header>
 
         <div className="flex-1 overflow-auto">
@@ -237,6 +258,47 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
             {(error || busy) && (
               <div className={`mb-3 px-3 py-2 rounded border text-xs flex items-center gap-2 ${error ? 'bg-red-950/70 border-red-600 text-red-200' : 'bg-slate-800 border-slate-600 text-slate-200'}`}>
                 {error ? <><AlertTriangle className="w-4 h-4" /> {error}</> : 'Aggiorno il lab su CML…'}
+              </div>
+            )}
+
+            {verify && (
+              <div className={`mb-4 rounded-lg border-2 p-3 text-xs ${verify.ok ? 'border-emerald-500 bg-emerald-950/40' : 'border-amber-500 bg-amber-950/30'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2 font-bold text-sm">
+                    {verify.ok ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <XCircle className="w-5 h-5 text-amber-400" />}
+                    {verify.ok ? 'La rete corrisponde al target e funziona' : 'Ci sono differenze rispetto al target'}
+                  </div>
+                  <button onClick={() => setVerify(null)} className="text-slate-400 hover:text-white" aria-label="Chiudi verifica"><X className="w-4 h-4" /></button>
+                </div>
+                <div className="text-[10px] text-slate-400 mb-2">Letto dagli apparati veri in {verify.took_s} s</div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <div className="font-bold text-slate-200 mb-1">Funziona?</div>
+                    {verify.checks.map((c) => (
+                      <div key={c.label} className="flex gap-2 items-start mb-0.5">
+                        <span className={c.ok ? 'text-emerald-400' : 'text-red-400'}>{c.ok ? '✓' : '✗'}</span>
+                        <span className="text-slate-200">{c.label}<span className="text-slate-500"> · {c.detail}</span></span>
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <div className="font-bold text-slate-200 mb-1">Configurazioni (running-config vs target)</div>
+                    {verify.devices.map((d) => (
+                      <div key={d.node} className="mb-2">
+                        <div className={d.ok ? 'text-emerald-300' : 'text-amber-300'}>
+                          {d.ok ? '✓' : '✗'} {d.node}{d.ok ? ' · identica al target' : d.error ? ` · ${d.error}` : ` · ${d.missing.length} mancanti, ${d.extra.length} in più`}
+                        </div>
+                        {d.missing.map((m, i) => (
+                          <div key={`m${i}`} className="pl-4 font-mono text-red-300">- {m.section ? <span className="text-slate-400">{m.section} › </span> : null}{m.line}</div>
+                        ))}
+                        {d.extra.map((m, i) => (
+                          <div key={`e${i}`} className="pl-4 font-mono text-amber-200">+ {m.section ? <span className="text-slate-400">{m.section} › </span> : null}{m.line}</div>
+                        ))}
+                      </div>
+                    ))}
+                    <div className="text-[10px] text-slate-500"><span className="text-red-300">-</span> previsto ma assente · <span className="text-amber-200">+</span> presente ma non previsto</div>
+                  </div>
+                </div>
               </div>
             )}
 

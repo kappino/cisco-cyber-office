@@ -85,32 +85,32 @@ nodes:
        description PC-MARKETING
        switchport mode access
        switchport access vlan 10
-       spanning-tree portfast edge
+       spanning-tree portfast
       interface Ethernet0/2
        description PC-CONTABILITA
        switchport mode access
        switchport access vlan 20
-       spanning-tree portfast edge
+       spanning-tree portfast
       interface Ethernet0/3
        description STAMPANTE
        switchport mode access
        switchport access vlan 30
-       spanning-tree portfast edge
+       spanning-tree portfast
       interface Ethernet1/0
        description presa libera sala riunioni (Marketing)
        switchport mode access
        switchport access vlan 10
-       spanning-tree portfast edge
+       spanning-tree portfast
       interface Ethernet1/1
        description presa libera (Amministrazione)
        switchport mode access
        switchport access vlan 20
-       spanning-tree portfast edge
+       spanning-tree portfast
       interface Ethernet1/2
        description presa libera (Servizi)
        switchport mode access
        switchport access vlan 30
-       spanning-tree portfast edge
+       spanning-tree portfast
       interface Ethernet1/3
        description NON USATA
        switchport mode access
@@ -168,3 +168,12 @@ links:
   - [SW-PIANO1, Ethernet0/1, PC-MARKETING, eth0]
   - [SW-PIANO1, Ethernet0/2, PC-CONTABILITA, eth0]
   - [SW-PIANO1, Ethernet0/3, STAMPANTE, eth0]
+
+# Controlli funzionali della verifica (oltre al diff delle configurazioni)
+checks:
+  - { from: PC-MARKETING, dhcp: "10.10.10.", label: "PC Marketing riceve un indirizzo nella VLAN 10" }
+  - { from: PC-MARKETING, ping: 10.10.10.1, label: "PC Marketing raggiunge il suo gateway" }
+  - { from: PC-MARKETING, ping: 10.10.30.10, label: "PC Marketing raggiunge la stampante (VLAN 30)" }
+  - { from: PC-CONTABILITA, dhcp: "10.10.20.", label: "PC Contabilita' riceve un indirizzo nella VLAN 20" }
+  - { from: PC-CONTABILITA, ping: 10.10.30.10, label: "PC Contabilita' raggiunge la stampante" }
+  - { from: STAMPANTE, ping: 10.10.30.1, label: "La stampante raggiunge il suo gateway" }

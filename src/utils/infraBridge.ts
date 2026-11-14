@@ -114,6 +114,17 @@ export interface RoomPorts {
   ports: Record<string, Record<string, PortLed>>;
 }
 
+export interface DiffLine { section: string; line: string }
+
+export interface RoomVerify {
+  room_id: string;
+  lab_title: string;
+  ok: boolean;
+  took_s: number;
+  devices: { node: string; kind: string; missing: DiffLine[]; extra: DiffLine[]; ok: boolean; error: string | null }[];
+  checks: { from: string; label: string; ping?: string; dhcp?: string; ok: boolean; detail: string }[];
+}
+
 export interface CableAction {
   action: 'connect' | 'disconnect' | 'move' | 'unplug' | 'plug';
   node: string;
@@ -441,6 +452,22 @@ class InfraBridge {
       return res.ok ? ((await res.json()) as RoomPorts) : null;
     } catch {
       return null;
+    }
+  }
+
+  async verifyRoom(roomId: string): Promise<{ ok: boolean; data?: RoomVerify; error?: string }> {
+    try {
+      const res = await fetch(`/api/room/${roomId}/verify`);
+      const data = await res.json();
+      this.addLog({
+        endpoint: `/api/room/${roomId}/verify`,
+        mode: res.ok ? 'live_cml' : 'fallback_sim',
+        summary: res.ok ? `Verifica ${roomId}: ${data.ok ? 'OK' : 'differenze'}` : `Verifica ${roomId}: errore`,
+        latencyMs: Math.round((data?.took_s ?? 0) * 1000),
+      });
+      return res.ok ? { ok: true, data: data as RoomVerify } : { ok: false, error: data?.detail ?? 'errore' };
+    } catch (e) {
+      return { ok: false, error: String(e) };
     }
   }
 

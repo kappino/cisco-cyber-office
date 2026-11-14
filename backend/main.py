@@ -130,6 +130,17 @@ async def room_ports(room_id: str) -> Dict[str, Any]:
     return await room_manager.ports(room_id)
 
 
+@app.get("/api/room/{room_id}/verify")
+async def room_verify(room_id: str) -> Dict[str, Any]:
+    """Diff tra running-config vere e target della stanza, piu' i controlli funzionali (DHCP, ping)."""
+    if room_id not in ROOMS:
+        raise HTTPException(404, "stanza sconosciuta")
+    try:
+        return await room_manager.verify(room_id)
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
 @app.post("/api/room/{room_id}/cable")
 async def room_cable(room_id: str, req: CableRequest) -> Dict[str, Any]:
     """Stacca, ricollega o sposta un cavo: la modifica avviene sul lab CML della stanza."""

@@ -25,6 +25,8 @@ import httpx
 import paramiko
 import yaml
 
+from backend.config_diff import diff_config, parse_ping
+
 ROOMS_DIR = Path(__file__).parent / "rooms"
 
 CML_URL = os.getenv("CML_URL", "https://192.168.122.110").rstrip("/")
@@ -656,6 +658,60 @@ class RoomManager:
         out = {"room_id": room_id, "ready": True, "ports": dict(pairs), "read_at": time.time()}
         self._ports_cache[room_id] = (time.time(), out)
         return out
+
+    # ---- verifica: diff delle configurazioni + controlli funzionali ------
+    async def verify(self, room_id: str) -> Dict[str, Any]:
+        """Per ogni apparato IOS: diff tra running-config vera e target del file della stanza.
+        Per gli host: i controlli `checks` del file (DHCP, ping) eseguiti dalle loro console."""
+        t0 = time.time()
+        spec = room_spec(room_id)
+        if self.status[room_id]["phase"] != "ready":
+            raise RuntimeError("la rete della stanza non e' accesa")
+        title = spec["lab_title"]
+
+        def device_diff(n: Dict[str, Any]) -> Dict[str, Any]:
+            try:
+                (run,) = run_console_commands(title, n["label"], n["cml_def"], ["show running-config"], timeout=20)
+                d = diff_config(n.get("config", ""), run)
+                return {"node": n["label"], "kind": n.get("kind"), **d,
+                        "ok": not d["missing"] and not d["extra"], "error": None}
+            except Exception as exc:
+                return {"node": n["label"], "kind": n.get("kind"), "missing": [], "extra": [], "ok": False,
+                        "error": f"console non disponibile: {exc}"}
+
+        def host_checks(host: str, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            ns = node_spec(room_id, host) or {}
+            cmds = ["ip -4 addr show eth0" if "dhcp" in c else f"ping -c 3 -W 1 {c['ping']}" for c in items]
+            try:
+                outs = run_console_commands(title, host, ns.get("cml_def", "alpine"), cmds, timeout=12)
+            except Exception as exc:
+                return [{**c, "ok": False, "detail": f"console non disponibile: {exc}"} for c in items]
+            res = []
+            for c, out in zip(items, outs):
+                if "dhcp" in c:
+                    m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)/", out)
+                    ip = m.group(1) if m else None
+                    ok = bool(ip and ip.startswith(c["dhcp"]))
+                    res.append({**c, "ok": ok, "detail": f"indirizzo {ip}" if ip else "nessun indirizzo IPv4"})
+                else:
+                    p = parse_ping(out)
+                    res.append({**c, "ok": p["success"], "detail": f"{p['received']}/{p['sent']} risposte, perdita {p['loss']:.0f}%"})
+            return res
+
+        ios = [n for n in spec["nodes"] if n["cml_def"] in IOS_DEFS]
+        by_host: Dict[str, List[Dict[str, Any]]] = {}
+        for c in spec.get("checks", []):
+            by_host.setdefault(c["from"], []).append(c)
+        jobs = [asyncio.to_thread(device_diff, n) for n in ios] + \
+               [asyncio.to_thread(host_checks, h, items) for h, items in by_host.items()]
+        results = await asyncio.gather(*jobs)
+        devices = results[:len(ios)]
+        checks = [c for group in results[len(ios):] for c in group]
+        checks.sort(key=lambda c: next((i for i, sc in enumerate(spec.get("checks", []))
+                                        if sc.get("label") == c.get("label")), 99))
+        return {"room_id": room_id, "lab_title": title,
+                "ok": all(d["ok"] for d in devices) and all(c["ok"] for c in checks),
+                "devices": devices, "checks": checks, "took_s": round(time.time() - t0, 1)}
 
     # ---- comandi singoli (vecchio terminale) ----------------------------
     async def exec_command(self, node_label: str, command: str, room_id: Optional[str] = None) -> str:
