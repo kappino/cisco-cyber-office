@@ -1,0 +1,92 @@
+mission_id: room_corridor
+mission_title: "Corridoio Operativo (1F): Rack SW1, CLI IOS & Umbrella SOC"
+description: "Topologia completa del Corridoio: SW-CORE-01 cablato 1-a-1 con RTR-EDGE-01 (E0/0), PC-HR-01 (E0/1 VLAN 10), PC-DEV-01 (E0/2 VLAN 20) e SRV-VOIP-01 (E0/3 VLAN 30)."
+osi_layer: "Layer 1/2/3"
+
+nodes:
+  - label: SW-CORE-01
+    role: switch
+    cml_def: ioll2-xe
+    x: -80
+    y: -20
+    faulty_config:
+      - "hostname SW-CORE-01"
+      - "vlan 10"
+      - " name HR"
+      - "vlan 20"
+      - " name DEV"
+      - "vlan 30"
+      - " name VOICE"
+      - "interface Ethernet0/0"
+      - " switchport trunk encapsulation dot1q"
+      - " switchport mode trunk"
+      - " no shutdown"
+      - "interface Ethernet0/1"
+      - " switchport mode access"
+      - " switchport access vlan 10"
+      - " no shutdown"
+      - "interface Ethernet0/2"
+      - " switchport mode access"
+      - " switchport access vlan 1"
+      - " no shutdown"
+      - "interface Ethernet0/3"
+      - " switchport mode access"
+      - " switchport access vlan 30"
+      - " no shutdown"
+
+  - label: RTR-EDGE-01
+    role: router
+    cml_def: iol-xe
+    x: 180
+    y: -20
+    faulty_config:
+      - "hostname RTR-EDGE-01"
+      - "interface Ethernet0/0"
+      - " no shutdown"
+      - "interface Ethernet0/0.10"
+      - " encapsulation dot1Q 10"
+      - " ip address 192.168.10.1 255.255.255.0"
+      - "interface Ethernet0/0.20"
+      - " encapsulation dot1Q 20"
+      - " ip address 192.168.20.1 255.255.255.0"
+      - "interface Ethernet0/0.30"
+      - " encapsulation dot1Q 30"
+      - " ip address 192.168.30.1 255.255.255.0"
+
+  - label: PC-HR-01
+    role: host
+    cml_def: alpine
+    x: -240
+    y: 160
+    ip_config:
+      ip: "192.168.10.10/24"
+      gw: "192.168.10.1"
+
+  - label: PC-DEV-01
+    role: host
+    cml_def: alpine
+    x: -80
+    y: 160
+    ip_config:
+      ip: "192.168.20.10/24"
+      gw: "192.168.20.1"
+
+  - label: SRV-VOIP-01
+    role: host
+    cml_def: alpine
+    x: 80
+    y: 160
+    ip_config:
+      ip: "192.168.30.10/24"
+      gw: "192.168.30.1"
+
+# Order matters: assigns SW-CORE-01 Ethernet0/0, 0/1, 0/2, 0/3 1-to-1 with PatchRackGame
+links:
+  - src_node: SW-CORE-01
+    dst_node: RTR-EDGE-01
+  - src_node: SW-CORE-01
+    dst_node: PC-HR-01
+  - src_node: SW-CORE-01
+    dst_node: PC-DEV-01
+  - src_node: SW-CORE-01
+    dst_node: SRV-VOIP-01

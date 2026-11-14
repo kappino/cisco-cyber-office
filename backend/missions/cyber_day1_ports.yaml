@@ -1,0 +1,64 @@
+mission_id: cyber_day1_ports
+mission_title: "Cyber Giorno 1: Porte che nessuno usa (Superficie Esposta)"
+description: "Controlla il server dei servizi didattici (192.168.10.20): 5 porte aperte (21, 22, 23, 443, 8080). Red Team scansiona da 192.168.10.77; Blue Team chiude 21, 23, 8080 mantenendo 22 e 443."
+osi_layer: "Layer 4/7 (Ports & Services)"
+
+nodes:
+  - label: SW-OFFICE-01
+    role: switch
+    cml_def: ioll2-xe
+    x: -40
+    y: 0
+    faulty_config:
+      - "hostname SW-OFFICE-01"
+      - "vlan 10"
+      - " name OFFICE_CORSO"
+      - "interface Ethernet0/0"
+      - " switchport mode access"
+      - " switchport access vlan 10"
+      - " no shutdown"
+      - "interface Ethernet0/1"
+      - " switchport mode access"
+      - " switchport access vlan 10"
+      - " no shutdown"
+      - "interface Ethernet0/2"
+      - " switchport mode access"
+      - " switchport access vlan 10"
+      - " no shutdown"
+
+  - label: SRV-DIDATTICA
+    role: server
+    cml_def: alpine
+    x: -40
+    y: -160
+    ip_config:
+      ip: "192.168.10.20/24"
+      gw: "192.168.10.1"
+    exposed_ports: [21, 22, 23, 443, 8080]
+    required_ports: [22, 443]
+
+  - label: PC-LUCA
+    role: host
+    cml_def: alpine
+    x: -200
+    y: 140
+    ip_config:
+      ip: "192.168.10.50/24"
+      gw: "192.168.10.1"
+
+  - label: PC-SCANNER
+    role: attacker
+    cml_def: alpine
+    x: 120
+    y: 140
+    ip_config:
+      ip: "192.168.10.77/24"
+      gw: "192.168.10.1"
+
+links:
+  - src_node: SW-OFFICE-01
+    dst_node: SRV-DIDATTICA
+  - src_node: SW-OFFICE-01
+    dst_node: PC-LUCA
+  - src_node: SW-OFFICE-01
+    dst_node: PC-SCANNER

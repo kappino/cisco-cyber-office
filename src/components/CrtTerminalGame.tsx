@@ -14,6 +14,7 @@ interface Props {
 type PromptMode = 'user' | 'privileged' | 'config' | 'config-if-gi01' | 'config-if-fa02';
 
 export const CrtTerminalGame: React.FC<Props> = ({ onBack, onComplete, isCompleted: initialCompleted }) => {
+  const [targetNode, setTargetNode] = useState<'SW-CORE-01' | 'RTR-EDGE-01'>('SW-CORE-01');
   const [history, setHistory] = useState<TerminalHistoryItem[]>([
     { type: 'system', text: 'Cisco IOS Software, C9300 Software (C9300-UNIVERSALK9-M), Version 17.6.3' },
     { type: 'system', text: 'Copyright (c) 1986-2026 by Cisco Systems, Inc.' },
@@ -120,9 +121,9 @@ export const CrtTerminalGame: React.FC<Props> = ({ onBack, onComplete, isComplet
       return;
     }
 
-    void infraBridge.execCommand('SW-CORE-01', cmd).then((res) => {
-      if (res.source === 'live_cml') {
-        setHistory(prev => [...prev, { type: 'system', text: res.output }]);
+    void infraBridge.execCommand(targetNode, cmd).then((res) => {
+      if (res.source === 'live_cml' && res.output) {
+        setHistory(prev => [...prev, { type: 'output', text: `[CML ${targetNode}]\n${res.output}` }]);
       }
     });
 
@@ -321,6 +322,15 @@ Tutti i pacchetti del dipartimento Dev ora transitano correttamente!
         </div>
 
         <div className="flex items-center gap-2">
+          <select
+            value={targetNode}
+            onChange={(e) => setTargetNode(e.target.value as 'SW-CORE-01' | 'RTR-EDGE-01')}
+            className="px-2 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs font-mono text-cyan-300 focus:outline-none focus:border-cyan-400"
+            title="Dispositivo CML target"
+          >
+            <option value="SW-CORE-01">CML: SW-CORE-01</option>
+            <option value="RTR-EDGE-01">CML: RTR-EDGE-01</option>
+          </select>
           {completed && (
             <span className="flex items-center gap-1.5 px-3 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 rounded-full text-xs font-semibold animate-pulse">
               <CheckCircle2 className="w-4 h-4" /> Switch Operativo al 100%!
