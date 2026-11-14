@@ -438,11 +438,22 @@ class RoomManager:
                 self._set(room_id, "starting", "Accendo la rete della stanza")
                 await self.api.put(f"/labs/{lid}/start")
                 await asyncio.sleep(3)
-                for n in await self._nodes(lid):
-                    if n["state"] in OFF_STATES:  # CML non segnala l'errore sull'avvio del lab: lo cerco nodo per nodo
-                        r = await self.api.put(f"/labs/{lid}/nodes/{n['id']}/state/start")
-                        if r.status_code >= 400:
-                            raise RuntimeError(f"{n['label']}: {r.json().get('description', r.text)}")
+                # CML non segnala l'errore sull'avvio del lab: lo cerco nodo per nodo. Le licenze dei
+                # nodi appena spenti si liberano qualche secondo dopo lo stato STOPPED: si riprova.
+                deadline = time.time() + 45
+                while True:
+                    last_err = None
+                    for n in await self._nodes(lid):
+                        if n["state"] in OFF_STATES:
+                            r = await self.api.put(f"/labs/{lid}/nodes/{n['id']}/state/start")
+                            if r.status_code >= 400:
+                                last_err = f"{n['label']}: {r.json().get('description', r.text)}"
+                    if not last_err:
+                        break
+                    if "license" not in last_err.lower() or time.time() > deadline:
+                        raise RuntimeError(last_err)
+                    self._set(room_id, "starting", "Attendo che CML liberi le licenze dei nodi")
+                    await asyncio.sleep(3)
 
                 # 5) aspetta che tutti i nodi siano BOOTED
                 def prog(ok: int, tot: int) -> None:
