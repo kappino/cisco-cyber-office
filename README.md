@@ -1,68 +1,105 @@
-# 🏢 Cisco Cyber Office // Hack The Route
+# CLARA / TNES — Backend CML, Splunk & AI
 
-> **The Big Hack 2026** – Progetto didattico e simulativo per la **Challenge 04: Consorzio Clara (Cisco Networking Academy)**.
+Backend **FastAPI** per il gioco 3D **CLARA Day One / TNES (Unreal Engine 5)** alla challenge Cisco / Clara — *The Big Hack 2026*.
 
-Un **serious game retro/pixel-art in stile Habbo Hotel** che introduce studenti e giovani sviluppatori al mondo del networking e della cybersecurity attraverso simulazioni tattili e missioni pratiche.
+Collega in tempo reale il client 3D (e qualsiasi client HTTP/WebSocket) a:
+- **Cisco Modeling Labs (CML 2.10.1)**: console seriali IOS/Linux, topologia, cablaggio 1:1, LED porte STP/up/down, verifiche su `running-config` e `startup-config`, reload pulito.
+- **Splunk Enterprise**: lettura alert SOC live (`GET /api/soc/alerts`).
+- **Ollama (`gemma4:12b`)**: suggerimenti didattici progressivi e dialoghi NPC (Alessia, Davide, Luca, Gaia).
 
----
-
-## 🎮 Caratteristiche e Minigiochi Inclusi (v0.0)
-
-1. **🏢 Hub Ufficio (Stile Habbo / Retro Isometrico):**
-   - Sala operativa con postazioni interattive, progress bar live della rete e dialoghi con **Marco (Senior NetAdmin)**.
-   - Motore audio retro a 8-bit sintetizzato in tempo reale tramite **Web Audio API** (zero dipendenze audio esterne, click meccanici, bip ed effetti vittoria).
-   - Sistema di persistenza dei progressi via `localStorage`.
-
-2. **🔌 Minigioco 1: Datacenter Rack 01 (Layer 1-2 Cablaggio Strutturato):**
-   - Simulazione frontale di un rack 19" con **Patch Panel CAT6A** e **Switch Cisco Catalyst 9300**.
-   - Collegamento interattivo dei patch cable RJ45: porta router su *Trunk (802.1Q)*, porte PC su *Access (VLAN 10, 20, 30)*.
-   - Feedback sonoro di aggancio (*clack*), LED dinamici (spento, ambra, verde fisso) e validazione automatica.
-
-3. **💻 Minigioco 2: Workstation Admin (Cisco IOS CLI CRT):**
-   - Emulatore terminale retro CRT con effetto curvatura, scanlines fosfori verdi e comandi Cisco reali.
-   - Supporto per comandi: `enable`, `configure terminal`, `show ip interface brief`, `show vlan brief`, `interface <id>`, `no shutdown`, `switchport access vlan 20`, `exit`.
-   - Autocompletamento con tasto `Tab` e navigazione cronologia con frecce `↑` e `↓`.
-   - Risoluzione del Ticket #9021 (accensione porta Uplink Gi0/1 e assegnazione VLAN 20).
-
-4. **🛡️ Minigioco 3: Cisco Umbrella SOC (Layer 7 Incident Response):**
-   - Monitoraggio del traffico DNS in tempo reale dal gateway aziendale.
-   - Rilevamento minaccia attiva di tipo **Ransomware Command & Control (C2) Beaconing**.
-   - Integrazione policy Cisco Umbrella: blocco DNS (Sinkhole) e isolamento endpoint per prevenire il movimento laterale.
-
-5. **🏆 Bacheca Badge & Certificazioni:**
-   - Assegnazione progressiva di 4 badge ufficiali (Cavo d'Oro, Cisco IOS Ninja, Umbrella Guardian, Cisco Elite NetAdmin) con animazioni e coriandoli (`canvas-confetti`).
+> Il frontend 2D Phaser completo (Piano B) è conservato separatamente sul branch **`feat/2d-fallback`**.
 
 ---
 
+## Struttura del repository (`main`)
 
-## 🔌 Integrazione con Cisco Modeling Labs
+- `backend/main.py` — orchestratore FastAPI (tutte le rotte HTTP e WebSocket).
+- `backend/room_labs.py` — gestione stanze CML, console TermServ SSH, LED porte, verifiche Gaia, reload.
+- `backend/rooms/` — definizioni YAML delle stanze (`tnes_n1`, `tnes_n2_prova`, `tnes_n2_gaia`, `tnes_n3`, `office`, `corridor`, `datacenter_vault`).
+- `backend/console_session.py` — sessioni console HTTP stateful (`ConsoleBridge`).
+- `backend/config_diff.py` — diff `running-config` e generazione hint a 3 livelli.
+- `backend/windows_translator.py` — traduttore comandi CLI Windows (`ipconfig`, `arp -a`, `tracert`, `ping`) per nodi Alpine.
+- `backend/fault_injection.py` — iniezione guasti di rete per training.
+- `backend/splunk_soc.py` — client REST Splunk (`:8089`) con fallback resiliente.
+- `backend/ai_service.py` — integrazione Ollama (`gemma4:12b`).
+- `tests/cml/` — suite `pytest` (`61` test, dettagli in [`tests/cml/README.md`](tests/cml/README.md)).
+- `docs/CML_INTEGRAZIONE.md` — architettura e limiti noti dell'integrazione CML.
 
-Le stanze del gioco sono collegate 1:1 a lab CML veri (console, cavi, LED, Verifica):
-funzionamento completo e **limiti noti** in [`docs/CML_INTEGRAZIONE.md`](docs/CML_INTEGRAZIONE.md);
-collaudi in [`tests/cml/`](tests/cml/README.md).
+---
 
-## 🚀 Come avviare il progetto
+## Avvio rapido
 
-### Metodo 1: Node.js locale / Dev Server (Immediato)
-```bash
-cd /root/.gemini/antigravity-cli/scratch/cisco-cyber-office
-npm run dev -- --host
+### 1. Variabili d'ambiente (`backend/.env`)
+
+```env
+CML_HOST=192.168.122.110
+CML_USER=admin
+CML_PASS=...
+USE_TNES_LABS=1
+SPLUNK_HOST=127.0.0.1
 ```
-Il gioco sarà raggiungibile sulla porta `5173`.
 
-### Metodo 2: Docker Container
+### 2. Avvio server e tunnel
+
 ```bash
-cd /root/.gemini/antigravity-cli/scratch/cisco-cyber-office
-docker compose up -d
+backend/.venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
-Il gioco sarà attivo sulla porta `3000`.
+
+Esposto pubblicamente per Unreal tramite Cloudflare Tunnel su `https://api-cml.kappino.me`.
+
+### 3. Test
+
+```bash
+backend/.venv/bin/python -m pytest tests/cml/ -q
+```
 
 ---
 
-## 🛠️ Stack Tecnologico AI-Native
-- **Framework:** React 18 + Vite 5 + TypeScript
-- **Styling:** Tailwind CSS + Google Fonts (VT323, Press Start 2P)
-- **Animazioni:** Framer Motion (transizioni fluide tra stanza e minigiochi)
-- **Audio Engine:** Sintetizzatore Web Audio API autonomo
-- **Icone:** Lucide React
-- **Effetti:** Canvas Confetti
+## Lab TNES e alias per Unreal 3D
+
+Con `USE_TNES_LABS=1`, il backend si collega direttamente ai lab TNES precaricati in CML (`external_lab: true`, senza ricrearli o cancellarli):
+
+| `room_id` | Lab CML | Nodi reali |
+| --- | --- | --- |
+| `tnes_n1` | `TNES N1 - inizio` | `SW1`, `R1`, `PORTATILE`, `PC2` |
+| `tnes_n2_prova` | `TNES N2 prova - inizio` | `SW-PROVA`, `R1`, `PORTATILE` |
+| `tnes_n2_gaia` | `TNES N2 Gaia - inizio` | `R1`, `SW-A`, `SW-B`, `PC2`, `PC3` |
+| `tnes_n3` | `TNES N3 - inizio` | `R1`, `SW1`, `R2`, `SW2`, `PC2` |
+
+Alias automatici attivi per il client Unreal:
+- Stanze: `office -> tnes_n1`, `corridor -> tnes_n2_prova`, `datacenter_vault -> tnes_n3`
+- Nodi: `SW-PIANO1 -> SW1`, `RTR-UFFICIO -> R1`, `PC-MARKETING -> PORTATILE`, `LAPTOP -> PORTATILE`, `PC-CONTABILITA -> PC2`, `SW-ACC -> SW-PROVA`, `SW-DC1 -> SW2`
+
+---
+
+## Rotte API principali (`backend/main.py`)
+
+### Stato, stanze e topologia CML
+- `GET /api/health` — stato live CML, Ollama e stanze
+- `POST /api/cml/bootstrap-demo` — attiva la stanza di default (`tnes_n1` / `office`)
+- `POST /api/cml/room-sync` — sincronizza/attiva la stanza richiesta (`{"room_id": "..."}`)
+- `GET /api/rooms` — elenco stanze e nodi
+- `POST /api/rooms/provision` — provisioning YAML delle stanze non esterne
+- `GET /api/room/{room_id}/status` — stato boot della stanza
+- `GET /api/room/{room_id}/topology` — nodi e link correnti in CML
+- `GET /api/room/{room_id}/ports?fresh=false` — stato/LED porte dagli apparati
+- `POST /api/room/{room_id}/cable` — collega/scollega cavi 1:1 in CML
+- `POST /api/rack/patch` — compatibilità patch rack Unreal (`SW-PIANO1` / `SW1`)
+
+### Console, verifiche, hint e training
+- `POST /api/terminal/command` — esecuzione comando one-shot sulla console reale (`{"node": "...", "command": "..."}`)
+- `POST /api/console-session/{room_id}/{node}` — apre sessione console HTTP stateful
+- `POST /api/console-session/{session_id}/send` — invia input alla sessione
+- `GET /api/console-session/{session_id}/read` — legge output dalla sessione
+- `DELETE /api/console-session/{session_id}` — chiude sessione
+- `WS /ws/console/{room_id}/{node}` — console WebSocket interattiva
+- `GET /api/room/{room_id}/verify` — verifica Gaia su `running-config` / `startup-config` / LED / connettività
+- `GET /api/room/{room_id}/hint?level=1|2|3` — suggerimenti progressivi a 3 livelli
+- `POST /api/room/{room_id}/reload` — reset pulito stanza o singolo nodo (`autosave: false`)
+- `POST /api/room/{room_id}/inject-fault` — iniezione guasti (`vlan_mismatch`, `interface_shutdown`, `missing_static_route`, `trunk_vlan_exclusion`)
+
+### SOC, AI e missioni
+- `GET /api/soc/alerts` — alert live da Splunk Enterprise (`live_splunk` o `fallback_sim`)
+- `POST /api/soc/sinkhole` — policy sinkhole DNS
+- `POST /api/ai/interact` — interazione NPC con Ollama (`gemma4:12b`)
+- `GET /api/mission/specs`, `POST /api/mission/verify`, `POST /api/mission/generate` — specifiche, verifica e generazione missioni
