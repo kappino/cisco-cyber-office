@@ -1,0 +1,30 @@
+room_id: tnes_n2_gaia
+lab_title: "TNES N2 Gaia - inizio"
+description: "Network 2 Gaia: R1, SW-A, SW-B, PC2 e PC3"
+external_lab: true
+autosave: false
+
+nodes:
+  - label: R1
+    cml_def: iol-xe
+    kind: router
+    display: "Router R1"
+  - label: SW-A
+    cml_def: ioll2-xe
+    kind: switch
+    display: "Switch SW-A"
+  - label: SW-B
+    cml_def: ioll2-xe
+    kind: switch
+    display: "Switch SW-B"
+  - label: PC2
+    cml_def: alpine
+    kind: pc
+    display: "PC2"
+  - label: PC3
+    cml_def: alpine
+    kind: pc
+    display: "PC3"
+
+links: []
+checks: []

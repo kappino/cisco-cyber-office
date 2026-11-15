@@ -1,0 +1,22 @@
+room_id: tnes_n2_prova
+lab_title: "TNES N2 prova - inizio"
+description: "Network 2 Prova: Switch di prova SW-PROVA, R1 e PORTATILE"
+external_lab: true
+autosave: false
+
+nodes:
+  - label: SW-PROVA
+    cml_def: ioll2-xe
+    kind: switch
+    display: "Switch di prova SW-PROVA"
+  - label: R1
+    cml_def: iol-xe
+    kind: router
+    display: "Router R1"
+  - label: PORTATILE
+    cml_def: alpine
+    kind: pc
+    display: "Portatile Tecnico"
+
+links: []
+checks: []
