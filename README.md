@@ -5,7 +5,7 @@ Backend **FastAPI** per il gioco 3D **CLARA Day One / TNES (Unreal Engine 5)** a
 Collega in tempo reale il client 3D (e qualsiasi client HTTP/WebSocket) a:
 - **Cisco Modeling Labs (CML 2.10.1)**: console seriali IOS/Linux, topologia, cablaggio 1:1, LED porte STP/up/down, verifiche su `running-config` e `startup-config`, reload pulito.
 - **Splunk Enterprise**: lettura alert SOC live (`GET /api/soc/alerts`).
-- **Ollama (`gemma4:12b`)**: suggerimenti didattici progressivi e dialoghi NPC (Alessia, Davide, Luca, Gaia).
+- **Ollama (`gemma4:12b`)**: suggerimenti didattici progressivi e dialoghi NPC.
 
 > Il frontend 2D Phaser completo (Piano B) è conservato separatamente sul branch **`feat/2d-fallback`**.
 
@@ -14,8 +14,8 @@ Collega in tempo reale il client 3D (e qualsiasi client HTTP/WebSocket) a:
 ## Struttura del repository (`main`)
 
 - `backend/main.py` — orchestratore FastAPI (tutte le rotte HTTP e WebSocket).
-- `backend/room_labs.py` — gestione stanze CML, console TermServ SSH, LED porte, verifiche Gaia, reload.
-- `backend/rooms/` — definizioni YAML delle stanze (`tnes_n1`, `tnes_n2_prova`, `tnes_n2_gaia`, `tnes_n3`, `office`, `corridor`, `datacenter_vault`).
+- `backend/room_labs.py` — gestione stanze CML, console TermServ SSH, LED porte, verifiche, reload.
+- `backend/rooms/` — definizioni YAML delle stanze (`tnes_n1`, `tnes_n2_prova`, `tnes_n3`, `office`, `corridor`, `datacenter_vault`).
 - `backend/console_session.py` — sessioni console HTTP stateful (`ConsoleBridge`).
 - `backend/config_diff.py` — diff `running-config` e generazione hint a 3 livelli.
 - `backend/windows_translator.py` — traduttore comandi CLI Windows (`ipconfig`, `arp -a`, `tracert`, `ping`) per nodi Alpine.
@@ -63,7 +63,7 @@ Con `USE_TNES_LABS=1`, il backend si collega direttamente ai lab TNES precaricat
 | --- | --- | --- |
 | `tnes_n1` | `TNES N1 - inizio` | `SW1`, `R1`, `PORTATILE`, `PC2` |
 | `tnes_n2_prova` | `TNES N2 prova - inizio` | `SW-PROVA`, `R1`, `PORTATILE` |
-| `tnes_n2_gaia` | `TNES N2 Gaia - inizio` | `R1`, `SW-A`, `SW-B`, `PC2`, `PC3` |
+| `R1`, `SW-A`, `SW-B`, `PC2`, `PC3` |
 | `tnes_n3` | `TNES N3 - inizio` | `R1`, `SW1`, `R2`, `SW2`, `PC2` |
 
 Alias automatici attivi per il client Unreal:
@@ -93,7 +93,7 @@ Alias automatici attivi per il client Unreal:
 - `GET /api/console-session/{session_id}/read` — legge output dalla sessione
 - `DELETE /api/console-session/{session_id}` — chiude sessione
 - `WS /ws/console/{room_id}/{node}` — console WebSocket interattiva
-- `GET /api/room/{room_id}/verify` — verifica Gaia su `running-config` / `startup-config` / LED / connettività
+- `GET /api/room/{room_id}/verify` — verifica su `running-config` / `startup-config` / LED / connettività
 - `GET /api/room/{room_id}/hint?level=1|2|3` — suggerimenti progressivi a 3 livelli
 - `POST /api/room/{room_id}/reload` — reset pulito stanza o singolo nodo (`autosave: false`)
 - `POST /api/room/{room_id}/inject-fault` — iniezione guasti (`vlan_mismatch`, `interface_shutdown`, `missing_static_route`, `trunk_vlan_exclusion`)
