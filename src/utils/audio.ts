@@ -27,7 +27,8 @@ class SoundEngine {
 
   constructor() {
     if (typeof window !== 'undefined') {
-      this.isMuted = localStorage.getItem('cisco_sound_muted') === 'true';
+      try { this.isMuted = localStorage.getItem('cisco_sound_muted') === 'true'; }
+      catch { this.isMuted = true; }
       this.attachGestureUnlock();
     }
   }
@@ -174,7 +175,8 @@ class SoundEngine {
     this.isMuted = !this.isMuted;
     const currentSession = ++this.muteSessionId;
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('cisco_sound_muted', String(this.isMuted));
+      try { localStorage.setItem('cisco_sound_muted', String(this.isMuted)); }
+      catch { /* Audio remains usable when browser storage is unavailable. */ }
     }
 
     this.initCtx();

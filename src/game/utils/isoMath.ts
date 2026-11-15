@@ -1,7 +1,7 @@
-export const TILE_W = 64;
-export const TILE_H = 32;
-export const HALF_W = 32;
-export const HALF_H = 16;
+export const TILE_W = 96;
+export const TILE_H = 48;
+export const HALF_W = 48;
+export const HALF_H = 24;
 export const ORIGIN_X = 420;
 export const ORIGIN_Y = 170;
 

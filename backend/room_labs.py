@@ -662,6 +662,8 @@ class RoomManager:
         mark = f"fr-hash:{spec['hash']}"
         lid = await self.find_lab(spec["lab_title"])
         if lid:
+            if spec.get("external_lab") and not force:
+                return lid
             info = await self.api.get(f"/labs/{lid}")
             if mark in (info.get("lab_notes") or "") and not force:
                 return lid

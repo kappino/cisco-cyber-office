@@ -93,14 +93,14 @@ export function registerCrispEnvironmentTextures(scene: Phaser.Scene): void {
     isoDiamondPath(ctx, 64, 32);
     ctx.clip();
     const grad = ctx.createLinearGradient(0, 0, 64, 32);
-    grad.addColorStop(0, '#1e293b');
-    grad.addColorStop(1, '#0f172a');
+    grad.addColorStop(0, '#c5cdd7');
+    grad.addColorStop(1, '#b5c0cc');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 64, 32);
     ctx.restore();
 
     isoDiamondPath(ctx, 64, 32);
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.22)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
     ctx.lineWidth = 1;
     ctx.stroke();
     replaceTexture(scene, 'tile_corridor', c);
@@ -112,11 +112,11 @@ export function registerCrispEnvironmentTextures(scene: Phaser.Scene): void {
     ctx.save();
     isoDiamondPath(ctx, 64, 32);
     ctx.clip();
-    ctx.fillStyle = '#0c1628';
+    ctx.fillStyle = '#a5b3c3';
     ctx.fillRect(0, 0, 64, 32);
     ctx.restore();
     isoDiamondPath(ctx, 64, 32);
-    ctx.strokeStyle = 'rgba(14, 165, 233, 0.25)';
+    ctx.strokeStyle = 'rgba(231, 239, 248, 0.6)';
     ctx.stroke();
     replaceTexture(scene, 'tile_server_solid', c);
   }
@@ -126,9 +126,9 @@ export function registerCrispEnvironmentTextures(scene: Phaser.Scene): void {
     ctx.save();
     isoDiamondPath(ctx, 64, 32);
     ctx.clip();
-    ctx.fillStyle = '#062038';
+    ctx.fillStyle = '#8d9db0';
     ctx.fillRect(0, 0, 64, 32);
-    ctx.strokeStyle = 'rgba(34, 211, 238, 0.55)';
+    ctx.strokeStyle = 'rgba(60, 80, 104, 0.25)';
     ctx.lineWidth = 1;
     for (let x = 8; x < 56; x += 6) {
       ctx.beginPath();
@@ -138,7 +138,7 @@ export function registerCrispEnvironmentTextures(scene: Phaser.Scene): void {
     }
     ctx.restore();
     isoDiamondPath(ctx, 64, 32);
-    ctx.strokeStyle = '#22d3ee';
+    ctx.strokeStyle = '#cad4e0';
     ctx.stroke();
     replaceTexture(scene, 'tile_server_grill', c);
   }

@@ -1,0 +1,30 @@
+room_id: tnes_n3
+lab_title: "TNES N3 - inizio"
+description: "Network 3 Routing: R1, SW1, R2, SW2 e PC2"
+external_lab: true
+autosave: false
+
+nodes:
+  - label: R1
+    cml_def: iol-xe
+    kind: router
+    display: "Router R1"
+  - label: SW1
+    cml_def: ioll2-xe
+    kind: switch
+    display: "Switch SW1"
+  - label: R2
+    cml_def: iol-xe
+    kind: router
+    display: "Router R2"
+  - label: SW2
+    cml_def: ioll2-xe
+    kind: switch
+    display: "Switch SW2"
+  - label: PC2
+    cml_def: alpine
+    kind: pc
+    display: "PC2"
+
+links: []
+checks: []

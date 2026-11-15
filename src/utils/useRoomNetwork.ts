@@ -10,13 +10,19 @@ import { infraBridge, RoomTopology } from './infraBridge';
  */
 export function useRoomNetwork(roomId: string) {
   const [topology, setTopology] = useState<RoomTopology | null>(null);
+  const [offline, setOffline] = useState(false);
   const lastSynced = useRef<string | null>(null);
+
+  const livePorts = useRef<Awaited<ReturnType<typeof infraBridge.getRoomPorts>>>(null);
 
   const publish = useCallback((t: RoomTopology) => {
     setTopology(t);
     const linkUp = (d: RoomTopology['devices'][number]) => {
       const wired = d.interfaces.filter((i) => i.connected);
-      return { total: wired.length, up: wired.filter((i) => i.link_state === 'STARTED').length };
+      return { total: wired.length, up: wired.filter((i) => {
+        const port = livePorts.current?.ports[d.label]?.[i.label];
+        return typeof port === 'object' && port !== null ? port.led.startsWith('green') : i.link_state === 'STARTED';
+      }).length };
     };
     // postazioni (PC, stampante): hanno una posizione nella stanza
     const devices: RoomDevice[] = t.devices.filter((d) => d.game).map((d) => {
@@ -44,14 +50,20 @@ export function useRoomNetwork(roomId: string) {
 
   useEffect(() => {
     let alive = true;
+    livePorts.current = null;
+    setTopology(null);
+    setOffline(false);
     let timer: ReturnType<typeof setTimeout>;
     if (lastSynced.current !== roomId) {
       lastSynced.current = roomId;
       void infraBridge.syncRoomLab(roomId);
     }
     const tick = async () => {
-      const t = await refresh();
+      const [ports, t] = await Promise.all([infraBridge.getRoomPorts(roomId), infraBridge.getRoomTopology(roomId)]);
       if (!alive) return;
+      livePorts.current = ports;
+      setOffline(!t);
+      if (t && t.room_id === roomId) publish(t);
       const ready = t?.status.phase === 'ready';
       timer = setTimeout(tick, ready ? 5000 : 2000);
     };
@@ -60,7 +72,7 @@ export function useRoomNetwork(roomId: string) {
       alive = false;
       clearTimeout(timer);
     };
-  }, [roomId, refresh]);
+  }, [roomId, publish]);
 
-  return { topology, refresh, publish };
+  return { topology, refresh, publish, offline };
 }

@@ -37,6 +37,12 @@ export function registerCharacterTextures(scene: Phaser.Scene): void {
         ctx.fillStyle='#b77f68';ctx.fillRect(16+side,20+bob,3,1);
         ctx.strokeStyle='#d9d5bf';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(12,26+bob);ctx.lineTo(16,33+bob);ctx.lineTo(20,26+bob);ctx.stroke();
         round(15,32+bob,5,6,1,'#f1e9d5');
+        ctx.fillStyle='#64748b';ctx.fillRect(16,34+bob,3,1);
+        // Tiny office details keep each colleague recognizable at game scale.
+        if(key==='marco') { ctx.strokeStyle='#45566f';ctx.lineWidth=.8;ctx.strokeRect(10+side,14+bob,6,4);ctx.strokeRect(18+side,14+bob,6,4);ctx.fillRect(16+side,15+bob,2,1); }
+        if(key==='rosaria') { round(23,13+bob,3,5,1,'#caa36b'); }
+        if(key==='ciro') { ctx.fillStyle='#dce5e5';ctx.fillRect(8,28+bob,3,5); }
+
       }
       ctx.restore();
     }

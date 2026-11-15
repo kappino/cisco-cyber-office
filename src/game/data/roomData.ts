@@ -110,13 +110,14 @@ export const ROOM_CONFIGS: Record<string, RoomConfig> = {
       }
     ],
     npcs: [
+      { id: 'davide', name: 'Davide (Red Team)', role: 'RED TEAM', charKey: 'ciro', gridX: 5.5, gridY: 4.2, direction: 'SW', spotId: 'davide' },
       {
         id: 'rosaria',
-        name: 'Rosaria (IT Mentor)',
+        name: 'Alessia (Reception)',
         role: 'MENTOR CISCO ACADEMY',
         charKey: 'rosaria',
-        gridX: 3.5,
-        gridY: 1.8,
+        gridX: 2.7,
+        gridY: 2.1,
         direction: 'SW',
         spotId: 'rosaria'
       }
@@ -137,7 +138,7 @@ export const ROOM_CONFIGS: Record<string, RoomConfig> = {
       },
       {
         id: 'rosaria',
-        name: 'Rosaria (IT Mentor)',
+        name: 'Alessia (Reception)',
         tag: 'MENTOR CISCO',
         desc: 'Parla con la mentor per orientarti tra le missioni di rete!',
         icon: '👩‍🏫',
@@ -250,11 +251,11 @@ export const ROOM_CONFIGS: Record<string, RoomConfig> = {
     npcs: [
       {
         id: 'ciro',
-        name: 'Ciro (Helpdesk Technician)',
+        name: 'Luca (Network Mentor)',
         role: 'HELPDESK TECH',
         charKey: 'ciro',
         gridX: 4.2,
-        gridY: 2.2,
+        gridY: 3.5,
         direction: 'SE',
         spotId: 'ciro'
       }
@@ -384,7 +385,7 @@ export const ROOM_CONFIGS: Record<string, RoomConfig> = {
     npcs: [
       {
         id: 'marco',
-        name: 'Marco (Senior NetAdmin)',
+        name: 'Gaia (QA/Collaudi)',
         role: 'SENIOR NETADMIN & MENTOR',
         charKey: 'marco',
         gridX: 3.2,
@@ -409,7 +410,7 @@ export const ROOM_CONFIGS: Record<string, RoomConfig> = {
       },
       {
         id: 'marco',
-        name: 'Marco (Senior NetAdmin)',
+        name: 'Gaia (QA/Collaudi)',
         tag: 'MENTOR CISCO',
         desc: 'Parla con Marco per quiz CCNA e mitigazione incidenti',
         icon: '👨‍💻',
@@ -451,3 +452,17 @@ export const ROOM_CONFIGS: Record<string, RoomConfig> = {
     thresholds: []
   }
 };
+
+// Keep proximity interactions aligned with the visible colleague positions.
+for (const room of Object.values(ROOM_CONFIGS)) {
+  for (const npc of room.npcs) {
+    const spot = room.spots.find(s => s.id === npc.spotId);
+    if (spot) {
+      spot.tileX = npc.gridX; spot.tileY = npc.gridY;
+      spot.interactX = npc.gridX; spot.interactY = npc.gridY;
+    }
+  }
+}
+
+// The reception workstation is supplied by the device layout, avoiding duplicate desks.
+ROOM_CONFIGS.office.furniture = ROOM_CONFIGS.office.furniture.filter(f => f.id !== 'rosaria_desk');

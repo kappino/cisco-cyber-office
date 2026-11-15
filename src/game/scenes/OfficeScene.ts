@@ -1,3 +1,5 @@
+import { walkingPath, WalkPoint } from '../utils/walkingPath';
+import { buildCozyDecor } from '../utils/cozyDecor';
 import { HD_DENSITY, hdTextureKeys } from '../utils/hdTextures';
 import Phaser from 'phaser';
 import { EventBus, InteractiveSpotData, RoomDevice, RoomRack, TimePhase } from '../EventBus';
@@ -26,6 +28,7 @@ export class OfficeScene extends Phaser.Scene {
   private targetWaypoint: { gx: number; gy: number; spotId?: string } | null = null;
   private currentRoomId: string = 'office';
   private activeSpot: InteractiveSpotData | null = null;
+  private walkingRoute: WalkPoint[] = [];
   private timePhase: TimePhase = 'sunset';
 
   // Keyboard controls
@@ -79,8 +82,8 @@ export class OfficeScene extends Phaser.Scene {
     this.buildRoom(this.currentRoomId, 'init');
 
     // Frame isometric room tightly inside canvas
-    this.cameras.main.centerOn(420, 252);
-    this.cameras.main.setZoom(2.1);
+    this.cameras.main.centerOn(420, 300);
+    this.cameras.main.setZoom(1.65);
 
     // 6. Signal scene ready
     EventBus.emit('SCENE_READY', 'OfficeScene');
@@ -201,10 +204,11 @@ export class OfficeScene extends Phaser.Scene {
     spawnMode: 'init' | 'door' | 'elevator' | 'direct' = 'direct'
   ): void {
     const config: RoomConfig = ROOM_CONFIGS[roomId] || ROOM_CONFIGS.office;
+    this.walkingRoute = [];
     this.currentRoomId = config.id;
 
     // 1. Clear previous room objects
-    this.roomObjects.forEach((obj) => obj.destroy());
+    this.roomObjects.forEach((obj) => { this.tweens.killTweensOf(obj); obj.destroy(); });
     this.roomObjects = [];
     this.windowSprite = null;
     this.activeSpot = null;
@@ -229,7 +233,7 @@ export class OfficeScene extends Phaser.Scene {
         }
         const pos = gridToScreen(gx, gy);
         const tile = this.add.image(pos.x, pos.y, tileKey);
-        if (hdTextureKeys.has(tileKey)) tile.setScale(1 / HD_DENSITY);
+        if (hdTextureKeys.has(tileKey)) tile.setScale(1.5 / HD_DENSITY);
         tile.setOrigin(0.5, 0.0);
         tile.setAlpha(config.id === 'office' ? 0.85 : 0.92);
         tile.setDepth(0);
@@ -252,7 +256,7 @@ export class OfficeScene extends Phaser.Scene {
     const rB = gridToScreen(5.8, 5.8);
     const rL = gridToScreen(2.2, 5.8);
     const rugFill = config.id === 'office' ? 0x1e3a5f : config.id === 'corridor' ? 0x0f2942 : 0x082f49;
-    const rugBorder = config.id === 'office' ? 0x38bdf8 : config.id === 'corridor' ? 0x22d3ee : 0x06b6d4;
+    const rugBorder = config.id === 'office' ? 0xa4aec6 : config.id === 'corridor' ? 0x9ca9c1 : 0xa5b6c6;
     floorGfx.fillStyle(rugFill, 0.55);
     floorGfx.fillPoints([rT, rR, rB, rL], true);
     floorGfx.lineStyle(2, rugBorder, 0.75);
@@ -264,9 +268,9 @@ export class OfficeScene extends Phaser.Scene {
     const wallGfx = this.add.graphics();
     wallGfx.setDepth(3);
 
-    const westColor = config.id === 'office' ? 0x334155 : config.id === 'corridor' ? 0x1e293b : 0x0f172a;
-    const northColor = config.id === 'office' ? 0x475569 : config.id === 'corridor' ? 0x334155 : 0x1e293b;
-    const trimColor = config.id === 'datacenter_vault' ? 0x0ea5e9 : 0x38bdf8;
+    const westColor = config.id === 'office' ? 0xd5d8df : config.id === 'corridor' ? 0xd2d8e0 : 0xbfcbd8;
+    const northColor = config.id === 'office' ? 0xe8e8ed : config.id === 'corridor' ? 0xe4e8ef : 0xdbe3ec;
+    const trimColor = config.id === 'datacenter_vault' ? 0x8599ad : 0x9aadc5;
 
     const drawWallSegment = (
       x1: number,
@@ -389,6 +393,8 @@ export class OfficeScene extends Phaser.Scene {
       this.roomObjects.push(lanes);
     }
 
+    this.roomObjects.push(...buildCozyDecor(this, config.id));
+
     // 4. Spawn Furniture & Equipment with ground shadows
     config.furniture.forEach((f) => {
       const pos = this.projectPosition(f.gridX, f.gridY);
@@ -424,7 +430,11 @@ export class OfficeScene extends Phaser.Scene {
       if (this.anims.exists(idleAnim)) {
         sprite.play(idleAnim);
       }
+      this.tweens.add({ targets: sprite, y: pos.y - 2, duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
       this.roomObjects.push(sprite);
+      const label = this.add.text(pos.x, pos.y - 66, npc.name.split(' ')[0] + '  ·  ?', { fontSize: '10px', color: '#58647c', backgroundColor: '#f8f9ff', padding: { x: 6, y: 4 } }).setOrigin(0.5).setDepth(getIsometricDepth(npc.gridX, npc.gridY, 7));
+      label.setInteractive({ useHandCursor: true }).on('pointerdown', () => EventBus.emit('LEARNING_COLLEAGUE', npc.name.split(' ')[0]));
+      this.roomObjects.push(label);
     });
 
     // 6. Spawn or Reposition Player
@@ -494,7 +504,8 @@ export class OfficeScene extends Phaser.Scene {
       }
     }
     if (grid.gx >= 0.5 && grid.gx <= 7.2 && grid.gy >= 0.5 && grid.gy <= 7.2) {
-      this.targetWaypoint = { gx: grid.gx, gy: grid.gy };
+      this.walkingRoute = walkingPath({ gx: this.playerGridX, gy: this.playerGridY }, grid, (x, y) => this.isCellWalkable(x, y, ROOM_CONFIGS[this.currentRoomId]));
+      this.targetWaypoint = this.walkingRoute.shift() || null;
     }
   }
 
@@ -558,6 +569,7 @@ export class OfficeScene extends Phaser.Scene {
       }
 
       if (inputActive) {
+        this.walkingRoute = [];
         this.targetWaypoint = null; // Keyboard overrides path waypoint
       }
     }
@@ -570,7 +582,7 @@ export class OfficeScene extends Phaser.Scene {
 
       if (dist <= 0.2) {
         const finishedWaypoint = this.targetWaypoint;
-        this.targetWaypoint = null;
+        this.targetWaypoint = this.walkingRoute.shift() || null;
         if (finishedWaypoint.spotId) {
           const room = ROOM_CONFIGS[this.currentRoomId];
           const spot = this.spotsOf(room).find((s) => s.id === finishedWaypoint.spotId);
@@ -736,7 +748,7 @@ export class OfficeScene extends Phaser.Scene {
       if (on && this.anims.exists('rack-sw1-blink')) sprite.play('rack-sw1-blink');
       if (!on) sprite.setTint(0x64748b);
       this.deviceObjects.push(shadow, sprite);
-      const led = label(pos.x, pos.y - 74, `ARMADIO ${r.id}`, !on ? 0x475569 : r.alert ? 0xf59e0b : 0x22c55e, r.gx, r.gy);
+      const led = label(pos.x, pos.y - 74, r.label, !on ? 0x475569 : r.alert ? 0xf59e0b : 0x22c55e, r.gx, r.gy);
       if (on && r.alert) this.tweens.add({ targets: led, alpha: 0.2, duration: 450, yoyo: true, repeat: -1 });
       const { ix, iy } = interactPoint(r.gx, r.gy);
       this.deviceSpots.push({

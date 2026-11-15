@@ -1,3 +1,4 @@
+import { LearningDock } from './LearningDock';
 import React, { useState, useEffect } from 'react';
 import { sound } from '../utils/audio';
 import { infraBridge } from '../utils/infraBridge';
@@ -504,6 +505,7 @@ export const HabboOffice: React.FC<Props> = ({
 
       {/* UNIFIED ACTION DOCK: ALWAYS CLEAN, INTUITIVE & NON-OVERLAPPING */}
       <section className="w-full max-w-4xl mx-auto px-2 sm:px-3 pb-3 z-30 font-mono flex flex-col gap-2">
+        <LearningDock key={currentRoom} roomId={currentRoom} />
         {/* Permanent Quick Station Navigation Bar */}
         <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-2 shadow-lg">
           <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1.5 px-0.5">

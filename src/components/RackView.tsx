@@ -5,6 +5,7 @@ import { infraBridge, LedState, PortLed, RoomPorts, RoomTopology, RoomTopologyDe
 import { CmlConsole } from './CmlDevicePanel';
 
 interface Props {
+  embedded?: boolean;
   roomId: string;
   rackId: string;
   topology: RoomTopology | null;
@@ -23,7 +24,7 @@ const KIND_NAME: Record<string, string> = { router: 'Router IOS', switch: 'Switc
  * ogni apparato con tutte le sue porte e i LED letti dagli apparati veri, cavi tra le porte,
  * cavo console da inserire nella porta CON del dispositivo che si vuole configurare.
  */
-export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology, onClose }) => {
+export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology, onClose, embedded = false }) => {
   const [ports, setPorts] = useState<RoomPorts | null>(null);
   const [selected, setSelected] = useState<PortRef | null>(null);
   const [holdingConsole, setHoldingConsole] = useState(false);
@@ -146,7 +147,7 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
     } else setError(res.error ?? 'operazione non riuscita');
   };
 
-  const onPortClick = (p: PortRef) => {
+  const onPortClick = (p: PortRef, origin: PortRef | null = selected) => {
     if (busy) return;
     setError(null);
     if (holdingConsole) {
@@ -154,26 +155,26 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
       return;
     }
     const here = findIface(p);
-    if (!selected) {
+    if (!origin) {
       setSelected(p);
       return;
     }
-    if (key(selected) === key(p)) {
+    if (key(origin) === key(p)) {
       setSelected(null);
       if (here?.connected) void run({ action: 'disconnect', node: p.node, iface: p.iface });
       return;
     }
-    const sel = findIface(selected);
+    const sel = findIface(origin);
     if (here?.connected) {
       setError(`${p.node} ${p.iface} è già occupata: prima togli quel cavo.`);
       return;
     }
     setSelected(null);
     if (sel?.connected && sel.peer) {
-      // il cavo di `selected` si sposta su `p`; l'altro capo resta dov'è
+      // il cavo di `origin` si sposta su `p`; l'altro capo resta dov'è
       void run({ action: 'move', node: sel.peer.node, iface: sel.peer.iface, to_node: p.node, to_iface: p.iface });
     } else {
-      void run({ action: 'connect', node: selected.node, iface: selected.iface, to_node: p.node, to_iface: p.iface });
+      void run({ action: 'connect', node: origin.node, iface: origin.iface, to_node: p.node, to_iface: p.iface });
     }
   };
 
@@ -209,7 +210,7 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
     if (d.state !== 'BOOTED' || !i.connected || i.link_state !== 'STARTED') return 'off';
     const since = linking[key({ node: d.label, iface: i.label })];
     if (since && (!ports?.read_at || ports.read_at * 1000 < since + 800)) return 'off';  // link in negoziazione
-    return portInfo(d, i)?.led ?? 'green';
+    return portInfo(d, i)?.led ?? 'off';
   };
   const LED_CLASS: Record<LedState, string> = {
     off: 'led-off', green: 'led-green', green_blink: 'led-green-blink',
@@ -218,7 +219,8 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
   const ledCls = (l: LedState) => LED_CLASS[l];
   const systOf = (d: RoomTopologyDevice): LedState => {
     if (d.state !== 'BOOTED') return d.state === 'STARTED' || d.state === 'QUEUED' ? 'amber' : 'off';
-    return ports?.ports?.[d.label]?._syst === 'amber' ? 'amber' : 'green';
+    const state = ports?.ports?.[d.label]?._syst;
+    return state === 'amber' ? 'amber' : state === 'green' ? 'green' : 'off';
   };
 
   const portRef = (k: string) => (el: HTMLElement | null) => {
@@ -235,6 +237,16 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
       <button
         key={i.label}
         onClick={() => onPortClick(p)}
+        draggable={!busy && !holdingConsole}
+        onDragStart={event => { event.dataTransfer.setData('application/x-cml-port', JSON.stringify(p)); event.dataTransfer.effectAllowed = 'move'; setSelected(p); }}
+        onDragOver={event => { if (!busy) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; } }}
+        onDrop={event => {
+          event.preventDefault();
+          try {
+            const origin = JSON.parse(event.dataTransfer.getData('application/x-cml-port')) as PortRef;
+            if (typeof origin.node === 'string' && typeof origin.iface === 'string' && findIface(origin) && key(origin) !== key(p)) onPortClick(p, origin);
+          } catch { setError('Trascina una porta di questo armadio.'); }
+        }}
         title={`${d.label} ${i.label}${i.peer ? ` → ${i.peer.node} ${i.peer.iface}` : ' (libera)'}${diagHelp ? (i.connected && i.link_state !== 'STARTED' ? ' · cavo staccato' : info ? ` · ${info.status}` : '') : ''}`}
         className={`p-1.5 rounded border text-left transition-all min-w-[64px] ${
           isSel ? 'bg-cyan-500/20 border-cyan-400 ring-2 ring-cyan-400/50 scale-105'
@@ -272,13 +284,13 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
   const consoleReady = topology?.status.phase === 'ready' && consoleDev?.state === 'BOOTED';
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-sm flex items-stretch justify-center p-1 sm:p-4" onClick={onClose}>
+    <div className={embedded ? 'rack-embedded' : 'fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-sm flex items-stretch justify-center p-1 sm:p-4'} onClick={onClose}>
       <div className="w-full max-w-6xl flex flex-col bg-slate-900 border-2 border-slate-700 rounded-xl shadow-2xl font-mono overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <header className="flex items-center justify-between px-3 py-2 border-b border-slate-700 shrink-0">
           <div className="min-w-0">
             <div className="text-sm font-bold text-white">Armadio di rete · {topology?.lab_title}</div>
             <div className="text-[10px] text-slate-400">
-              Clicca una porta e poi un'altra per collegarle · clicca un cavo e poi una porta libera per spostarlo · clicca due volte la stessa porta per togliere il cavo
+              Trascina tra due porte oppure cliccale in sequenza per collegarle · clicca un cavo e poi una porta libera per spostarlo · clicca due volte la stessa porta per togliere il cavo
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -297,12 +309,12 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
             >
               <ClipboardCheck className="w-4 h-4" /> {verifying ? 'Verifico…' : 'Verifica'}
             </button>
-            <button onClick={onClose} className="p-1 rounded hover:bg-slate-800" aria-label="Chiudi"><X className="w-4 h-4" /></button>
+            <button onClick={onClose} className="p-1 rounded hover:bg-slate-800" aria-label="Chiudi armadio"><X className="w-4 h-4" />{embedded && <span className="ml-1 text-xs">Chiudi armadio</span>}</button>
           </div>
         </header>
 
         <div className="flex-1 overflow-auto">
-          <div ref={inner} className="relative p-3 sm:p-4">
+          <div ref={inner} className={`relative p-3 sm:p-4 ${embedded ? 'rack-workspace' : ''}`}>
             {(error || busy) && (
               <div className={`mb-3 px-3 py-2 rounded border text-xs flex items-center gap-2 ${error ? 'bg-red-950/70 border-red-600 text-red-200' : 'bg-slate-800 border-slate-600 text-slate-200'}`}>
                 {error ? <><AlertTriangle className="w-4 h-4" /> {error}</> : 'Aggiorno il lab su CML…'}
@@ -352,7 +364,7 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
               </div>
             )}
 
-            <div className="flex flex-wrap gap-4 items-start">
+            <div className="rack-equipment flex flex-wrap gap-4 items-start">
               {racks.map((r) => {
                 const jacks = devices.filter((d) => d.jack?.rack === r.id);
                 const mounted = devices.filter((d) => d.rack === r.id).sort((a, b) => (KIND_ORDER[a.kind] ?? 9) - (KIND_ORDER[b.kind] ?? 9));
@@ -429,10 +441,10 @@ export const RackView: React.FC<Props> = ({ roomId, rackId, topology, onTopology
               </div>
             </div>
 
-            {consoleOn && (
-              <div className="mt-3">
-                {consoleReady ? <CmlConsole key={consoleOn} roomId={roomId} node={consoleOn} height={300} onNetChange={() => refreshSoon([2000, 6000])} />
-                  : <div className="text-amber-300 text-xs">{consoleOn} non è ancora avviato: la console risponde quando il LED SYS è verde.</div>}
+            {(embedded || consoleOn) && (
+              <div className="rack-terminal mt-3">
+                {!consoleOn ? <div className="space-y-3 text-slate-200"><h3 className="font-bold">Laptop di servizio</h3><p className="text-xs text-slate-400">Collega il cavo console alla porta CON dello switch o del router. Il terminale apparirà qui, accanto al rack.</p><button onClick={() => { setHoldingConsole(true); setSelected(null); }} className="rounded border border-sky-500 px-3 py-2 text-sm text-sky-200">{holdingConsole ? 'Ora scegli una porta CON' : 'Prendi il cavo console'}</button></div> : consoleReady ? <CmlConsole key={consoleOn} roomId={roomId} node={consoleOn} height={300} onNetChange={() => refreshSoon([2000, 6000])} />
+                  : <div className="text-amber-300 text-xs">{consoleOn} è ancora in avvio. Attendi che il dispositivo sia pronto.</div>}
               </div>
             )}
 

@@ -54,8 +54,8 @@ export function buildOfficeArchitecture(scene: Phaser.Scene): Phaser.GameObjects
   // Warm limestone coffee platform, three visible treads and an open circulation spine.
   slab(floor, 0, 5, 2.5, 3, 12, 0xd8c9ac, 0xa3947b, 0xb4a58c);
   for (let i = 0; i < 3; i++) slab(floor, 0, 4.2 + i * 0.27, 2.5, 0.27, (i + 1) * 4, 0xe8ddc7, 0xac9c84, 0xb6a58c);
-  polygon(floor, [point(2.8, 2.2), point(5.6, 2.2), point(5.6, 4.6), point(2.8, 4.6)], 0x557d80);
-  floor.lineStyle(1, 0xadc2b5, 0.75);
+  polygon(floor, [point(2.8, 2.2), point(5.6, 2.2), point(5.6, 4.6), point(2.8, 4.6)], 0x7a89a3);
+  floor.lineStyle(1, 0xb6c1d7, 0.75);
   floor.strokePoints([point(2.9, 2.3), point(5.5, 2.3), point(5.5, 4.5), point(2.9, 4.5)].map(([x,y])=>({x,y})), true);
 
   // Plaster walls, oak cap and a generous opening onto the gulf.
@@ -106,24 +106,11 @@ export function buildOfficeArchitecture(scene: Phaser.Scene): Phaser.GameObjects
     shelf.fillStyle([0x537e83,0xe6d7b3,0xb46e51,0x6c8062][i%4]);
     shelf.fillRect(p[0],p[1]-6,3,10);
   }
-  const desk = (x:number,y:number) => {
-    const g=graphics((x+y)*10+5);
-    slab(g,x,y,1.3,0.7,24,0xdbbc90,0xb18b63,0x9b7857);
-    const p=point(x+0.65,y+0.2,42);
-    g.fillStyle(0x34484b); g.fillRoundedRect(p[0]-13,p[1]-8,26,18,2);
-    g.fillStyle(0x91bec1); g.fillRect(p[0]-11,p[1]-6,22,13);
-    g.lineStyle(2,0xf0eadb,0.8); g.lineBetween(p[0]-8,p[1]-2,p[0]+5,p[1]-2);
-    const chair=point(x+0.65,y+1.05,0);
-    g.fillStyle(0x566c69); g.fillEllipse(chair[0],chair[1]-5,21,11);
-    g.fillRoundedRect(chair[0]-9,chair[1]-25,18,17,4);
-    g.lineStyle(2,0x394649); g.lineBetween(chair[0],chair[1]-2,chair[0],chair[1]+5);
-  };
-  desk(4.2,0.85);
   const lounge=graphics(99);
-  slab(lounge,3.3,6.3,1.9,0.65,11,0x688882,0x466560,0x55756e);
-  slab(lounge,3.3,6.8,1.9,0.18,26,0x76968d,0x55756e,0x466560);
-  slab(lounge,3.2,6.25,0.18,0.75,20,0x76968d,0x55756e,0x466560);
-  slab(lounge,5.2,6.25,0.18,0.75,20,0x76968d,0x55756e,0x466560);
+  slab(lounge,3.3,6.3,1.9,0.65,11,0x6d7da4,0x455671,0x566987);
+  slab(lounge,3.3,6.8,1.9,0.18,26,0x8796b6,0x566987,0x455671);
+  slab(lounge,3.2,6.25,0.18,0.75,20,0x8796b6,0x566987,0x455671);
+  slab(lounge,5.2,6.25,0.18,0.75,20,0x8796b6,0x566987,0x455671);
   slab(lounge,3.8,5.35,1.1,0.55,12,0xe7dfce,0xb9b0a0,0xcac1b0);
   const magazine=point(4.15,5.55,13);
   lounge.fillStyle(0xc47d59); lounge.fillRect(magazine[0]-6,magazine[1]-3,12,6);

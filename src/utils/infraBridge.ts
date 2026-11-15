@@ -124,7 +124,7 @@ export interface RoomVerify {
   lab_title: string;
   ok: boolean;
   took_s: number;
-  devices: { node: string; kind: string; missing: DiffLine[]; extra: DiffLine[]; ok: boolean; error: string | null }[];
+  devices: { node: string; kind: string; missing: DiffLine[]; extra: DiffLine[]; ok: boolean; error: string | null; acl_ok?: boolean; persistence_ok?: boolean; ssh_telnet_ok?: boolean }[];
   checks: { from: string; label: string; ping?: string; dhcp?: string; ok: boolean; detail: string }[];
 }
 
@@ -421,7 +421,7 @@ class InfraBridge {
 
   async getRoomTopology(roomId: string): Promise<RoomTopology | null> {
     try {
-      const res = await fetch(`/api/room/${roomId}/topology`);
+      const res = await fetch(`/api/room/${roomId}/topology`, { signal: AbortSignal.timeout(15000) });
       if (!res.ok) return null;
       return (await res.json()) as RoomTopology;
     } catch {
@@ -451,7 +451,7 @@ class InfraBridge {
 
   async getRoomPorts(roomId: string, fresh = false): Promise<RoomPorts | null> {
     try {
-      const res = await fetch(`/api/room/${roomId}/ports${fresh ? '?fresh=true' : ''}`);
+      const res = await fetch(`/api/room/${roomId}/ports${fresh ? '?fresh=true' : ''}`, { signal: AbortSignal.timeout(15000) });
       return res.ok ? ((await res.json()) as RoomPorts) : null;
     } catch {
       return null;

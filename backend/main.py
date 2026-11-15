@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 import asyncio
 import json
+import os
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -70,6 +71,42 @@ SESSION_TELEMETRY: Dict[str, Any] = {
     "blocked_domains": [],
 }
 
+_TNES_ROOM_ALIASES = {
+    "office": "tnes_n1",
+    "corridor": "tnes_n2_prova",
+    "datacenter_vault": "tnes_n3",
+}
+_TNES_NODE_ALIASES = {
+    "SW-PIANO1": "SW1",
+    "RTR-UFFICIO": "R1",
+    "PC-MARKETING": "PORTATILE",
+    "PC-CONTABILITA": "PC2",
+    "LAPTOP": "PORTATILE",
+    "SW-ACC": "SW-PROVA",
+    "SW-DC1": "SW2",
+}
+
+
+def _use_tnes() -> bool:
+    return os.getenv("USE_TNES_LABS", "").strip() == "1" and "PYTEST_CURRENT_TEST" not in os.environ
+
+
+def _resolve_room(room_id: str) -> str:
+    if _use_tnes() and room_id in _TNES_ROOM_ALIASES:
+        mapped = _TNES_ROOM_ALIASES[room_id]
+        if mapped in ROOMS:
+            return mapped
+    return room_id
+
+
+def _resolve_node(room_id: Optional[str], node: str) -> str:
+    if _use_tnes() and room_id:
+        if not node_spec(room_id, node):
+            alias = _TNES_NODE_ALIASES.get(node)
+            if alias and node_spec(room_id, alias):
+                return alias
+    return node
+
 
 @app.get("/api/health")
 async def health() -> Dict[str, Any]:
@@ -91,21 +128,23 @@ async def health() -> Dict[str, Any]:
 
 @app.post("/api/cml/bootstrap-demo")
 async def bootstrap_demo() -> Dict[str, Any]:
-    """Accende la rete della stanza attiva (o dell'ufficio). Non crea piu' lab di prova fuori dalle stanze."""
-    room = room_manager.active_room or "office"
+    """Accende la rete della stanza attiva (o dell'ufficio / TNES N1). Non crea piu' lab di prova fuori dalle stanze."""
+    requested = room_manager.active_room or "office"
+    room = _resolve_room(requested)
     st = room_manager.activate(room)
-    return {"mode": "live_cml", "room_id": room, "lab_title": room_spec(room)["lab_title"], "status": st,
+    return {"mode": "live_cml", "room_id": requested, "actual_room_id": room, "lab_title": room_spec(room)["lab_title"], "status": st,
             "created": False, "latency_ms": 0}
 
 
 @app.post("/api/cml/room-sync")
 async def room_sync(req: RoomSyncRequest) -> Dict[str, Any]:
     """Non bloccante: salva, spegne gli altri lab (stop, non wipe) e accende quello della stanza."""
+    room = _resolve_room(req.room_id)
     try:
-        st = room_manager.activate(req.room_id)
+        st = room_manager.activate(room)
     except KeyError as exc:
         raise HTTPException(404, str(exc))
-    return {"mode": "live_cml", "room_id": req.room_id, "lab_title": room_spec(req.room_id)["lab_title"],
+    return {"mode": "live_cml", "room_id": req.room_id, "actual_room_id": room, "lab_title": room_spec(room)["lab_title"],
             "status": st, "latency_ms": 0}
 
 
@@ -124,6 +163,7 @@ async def provision_rooms(force: bool = False) -> Dict[str, Any]:
 
 @app.get("/api/room/{room_id}/status")
 async def room_status(room_id: str) -> Dict[str, Any]:
+    room_id = _resolve_room(room_id)
     if room_id not in ROOMS:
         raise HTTPException(404, "stanza sconosciuta")
     return room_manager.status[room_id]
@@ -131,6 +171,7 @@ async def room_status(room_id: str) -> Dict[str, Any]:
 
 @app.get("/api/room/{room_id}/topology")
 async def room_topology(room_id: str) -> Dict[str, Any]:
+    room_id = _resolve_room(room_id)
     if room_id not in ROOMS:
         raise HTTPException(404, "stanza sconosciuta")
     return await room_manager.topology(room_id)
@@ -140,6 +181,7 @@ async def room_topology(room_id: str) -> Dict[str, Any]:
 async def room_ports(room_id: str, fresh: bool = False) -> Dict[str, Any]:
     """LED delle porte letti dagli apparati veri (switch e router della stanza).
     `fresh=true` dopo un cambiamento (cavo, comando di configurazione): salta la cache."""
+    room_id = _resolve_room(room_id)
     if room_id not in ROOMS:
         raise HTTPException(404, "stanza sconosciuta")
     return await room_manager.ports(room_id, fresh)
@@ -148,6 +190,7 @@ async def room_ports(room_id: str, fresh: bool = False) -> Dict[str, Any]:
 @app.get("/api/room/{room_id}/verify")
 async def room_verify(room_id: str) -> Dict[str, Any]:
     """Diff tra running-config vere e target della stanza, piu' i controlli funzionali (DHCP, ping)."""
+    room_id = _resolve_room(room_id)
     if room_id not in ROOMS:
         raise HTTPException(404, "stanza sconosciuta")
     try:
@@ -163,6 +206,7 @@ async def room_hint(room_id: str, level: int = 1, device: Optional[str] = None) 
     Level 2: Sezione / Ambito
     Level 3: Comando esatto di configurazione
     """
+    room_id = _resolve_room(room_id)
     if room_id not in ROOMS:
         raise HTTPException(404, "stanza sconosciuta")
     if level not in (1, 2, 3):
@@ -315,9 +359,11 @@ async def terminal_command(req: TerminalCommandRequest) -> Dict[str, Any]:
     SESSION_TELEMETRY["commands"] = SESSION_TELEMETRY["commands"][-30:]
     import time as _t
     t0 = _t.perf_counter()
+    active_room = _resolve_room(room_manager.active_room or "office")
+    target_node = _resolve_node(active_room, req.node)
     try:
-        out = await room_manager.exec_command(req.node, req.command)
-        return {"source": "live_cml", "node": req.node, "command": req.command, "output": out,
+        out = await room_manager.exec_command(target_node, req.command, room_id=active_room)
+        return {"source": "live_cml", "node": target_node, "requested_node": req.node, "command": req.command, "output": out,
                 "latency_ms": round((_t.perf_counter() - t0) * 1000, 1)}
     except Exception as exc:
         from backend.windows_translator import translate_windows_command
@@ -370,8 +416,10 @@ async def delete_console_session(session_id: str) -> Dict[str, Any]:
 
 @app.post("/api/console-session/{room_id}/{node}")
 async def create_console_session(room_id: str, node: str) -> Dict[str, Any]:
+    room_id = _resolve_room(room_id)
     if room_id not in ROOMS:
         raise HTTPException(404, f"Stanza '{room_id}' sconosciuta")
+    node = _resolve_node(room_id, node)
     ns = node_spec(room_id, node)
     if not ns:
         raise HTTPException(404, f"Dispositivo '{node}' non presente nella stanza '{room_id}'")
@@ -393,9 +441,10 @@ async def create_console_session(room_id: str, node: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 @app.post("/api/room/{room_id}/reload")
 async def room_reload(room_id: str, req: Optional[RoomReloadRequest] = None) -> Dict[str, Any]:
+    room_id = _resolve_room(room_id)
     if room_id not in ROOMS:
         raise HTTPException(404, "stanza sconosciuta")
-    node = req.node if req else None
+    node = _resolve_node(room_id, req.node) if (req and req.node) else None
     if node and not node_spec(room_id, node):
         raise HTTPException(404, f"dispositivo {node} non presente nella stanza {room_id}")
     try:
@@ -412,6 +461,7 @@ async def room_reload(room_id: str, req: Optional[RoomReloadRequest] = None) -> 
 @app.post("/api/room/{room_id}/inject-fault")
 async def room_inject_fault(room_id: str, req: Optional[FaultInjectionRequest] = None) -> Dict[str, Any]:
     """Inietta un guasto di rete casuale o specificato nel laboratorio (C3)."""
+    room_id = _resolve_room(room_id)
     if room_id not in ROOMS:
         raise HTTPException(404, "stanza sconosciuta")
     from backend.fault_injection import inject_fault

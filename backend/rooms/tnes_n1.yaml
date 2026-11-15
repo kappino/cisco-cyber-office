@@ -1,0 +1,37 @@
+room_id: tnes_n1
+lab_title: "TNES N1 - inizio"
+description: "Network 1: Connettivita' base, switch SW1, router R1, PORTATILE e PC2"
+external_lab: true
+autosave: false
+
+nodes:
+  - label: SW1
+    cml_def: ioll2-xe
+    kind: switch
+    display: "Switch SW1"
+    ports:
+      - { asset: Gi1/0/1, cml: Ethernet0/0, peer: R1, peer_if: Ethernet0/0, desc: "Link verso R1" }
+      - { asset: Gi1/0/2, cml: Ethernet0/1, peer: PORTATILE, peer_if: eth0, desc: "Link verso PORTATILE" }
+      - { asset: Gi1/0/3, cml: Ethernet0/2, peer: PC2, peer_if: eth0, desc: "Link verso PC2" }
+      - { asset: Gi1/0/4, cml: Ethernet0/3, peer: null, peer_if: null, desc: "Porta libera" }
+  - label: R1
+    cml_def: iol-xe
+    kind: router
+    display: "Router R1"
+    ports:
+      - { asset: Gi0/0, cml: Ethernet0/0, peer: SW1, peer_if: Ethernet0/0, desc: "LAN verso SW1" }
+  - label: PORTATILE
+    cml_def: alpine
+    kind: pc
+    display: "Portatile Tecnico"
+    ports:
+      - { asset: eth0, cml: eth0, peer: SW1, peer_if: Ethernet0/1, desc: "NIC Portatile" }
+  - label: PC2
+    cml_def: alpine
+    kind: pc
+    display: "PC2 Ufficio"
+    ports:
+      - { asset: eth0, cml: eth0, peer: SW1, peer_if: Ethernet0/2, desc: "NIC PC2" }
+
+links: []
+checks: []

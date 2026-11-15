@@ -77,3 +77,11 @@ body { background: #101f29; }
 .led-amber-blink { background-color: #fbbf24; box-shadow: 0 0 6px #fbbf24; animation: led-blink 0.8s steps(1) infinite; }
 .led-green-amber { animation: led-green-amber 0.8s steps(1) infinite; }
 .led-off { background-color: #334155; }
+
+/* The learning desk remains in normal flow on narrow screens. */
+.learning-dock button { padding: .45rem .7rem; border: 1px solid #0369a1; border-radius: .6rem; background: #0c3447; text-align: left; }
+.learning-dock button:hover { background: #164e63; }
+.learning-dock button:disabled { opacity: .45; cursor: wait; }
+.learning-dock :is(button, input, select, summary):focus-visible { outline: 2px solid #00bceb; outline-offset: 3px; }
+.learning-dock { background: linear-gradient(135deg, #122c36, #0f172a); }
+@media (prefers-reduced-motion: reduce) { .learning-dock * { animation: none !important; } }

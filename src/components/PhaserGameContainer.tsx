@@ -34,6 +34,9 @@ export const PhaserGameContainer: React.FC<Props> = ({
   celebrationTrigger,
   timePhase = 'sunset'
 }) => {
+  const latest = useRef({ currentRoom, timePhase, setActiveSpot, onTriggerSpot, onChangeRoom, onClearTargetSpot });
+  latest.current = { currentRoom, timePhase, setActiveSpot, onTriggerSpot, onChangeRoom, onClearTargetSpot };
+
   const containerRef = useRef<HTMLDivElement | null>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
   const activeSpotRef = useRef<InteractiveSpotData | null>(null);
@@ -51,9 +54,9 @@ export const PhaserGameContainer: React.FC<Props> = ({
     // Bi-directional event listeners
     const handleSceneReady = () => {
       sceneReadyRef.current = true;
-      EventBus.emit('SET_TIME_PHASE', timePhase);
-      if (currentRoom) {
-        EventBus.emit('CHANGE_ROOM', currentRoom);
+      EventBus.emit('SET_TIME_PHASE', latest.current.timePhase);
+      if (latest.current.currentRoom) {
+        EventBus.emit('CHANGE_ROOM', latest.current.currentRoom);
       }
       if (pendingSpotRef.current) {
         EventBus.emit('NAVIGATE_TO', { spotId: pendingSpotRef.current });
@@ -63,22 +66,22 @@ export const PhaserGameContainer: React.FC<Props> = ({
 
     const handleSpotEnter = (spot: InteractiveSpotData) => {
       activeSpotRef.current = spot;
-      setActiveSpot?.(spot);
+      latest.current.setActiveSpot?.(spot);
     };
 
     const handleSpotLeave = () => {
       activeSpotRef.current = null;
-      setActiveSpot?.(null);
+      latest.current.setActiveSpot?.(null);
     };
 
     const handleSpotInteract = (spotId: string) => {
       if (activeSpotRef.current && activeSpotRef.current.id === spotId) {
-        onTriggerSpot(activeSpotRef.current);
+        latest.current.onTriggerSpot(activeSpotRef.current);
       }
     };
 
     const handleRoomChanged = (newRoom: string) => {
-      onChangeRoom?.(newRoom as RoomId);
+      latest.current.onChangeRoom?.(newRoom as RoomId);
     };
 
     EventBus.on('SCENE_READY', handleSceneReady);
@@ -116,7 +119,7 @@ export const PhaserGameContainer: React.FC<Props> = ({
       } else {
         pendingSpotRef.current = targetSpotId;
       }
-      onClearTargetSpot?.();
+      latest.current.onClearTargetSpot?.();
     }
   }, [targetSpotId]);
 
@@ -144,7 +147,7 @@ export const PhaserGameContainer: React.FC<Props> = ({
       <div
         id="phaser-game-container"
         ref={containerRef}
-        className="w-full max-w-4xl h-auto block bg-slate-950 rounded-2xl border-4 border-slate-700/80 shadow-2xl overflow-hidden cursor-pointer select-none"
+        className="w-full h-auto block overflow-hidden cursor-pointer select-none"
         style={{ touchAction: 'manipulation', aspectRatio: '42 / 23' }}
         title="Tocca il pavimento per muoverti o avvicinati a una postazione per interagire!"
       />
