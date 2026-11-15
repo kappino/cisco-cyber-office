@@ -63,7 +63,6 @@ Con `USE_TNES_LABS=1`, il backend si collega direttamente ai lab TNES precaricat
 | --- | --- | --- |
 | `tnes_n1` | `TNES N1 - inizio` | `SW1`, `R1`, `PORTATILE`, `PC2` |
 | `tnes_n2_prova` | `TNES N2 prova - inizio` | `SW-PROVA`, `R1`, `PORTATILE` |
-| `R1`, `SW-A`, `SW-B`, `PC2`, `PC3` |
 | `tnes_n3` | `TNES N3 - inizio` | `R1`, `SW1`, `R2`, `SW2`, `PC2` |
 
 Alias automatici attivi per il client Unreal:
